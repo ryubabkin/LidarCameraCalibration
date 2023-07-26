@@ -312,3 +312,23 @@ def read_input_pair(image_folder, lidar_folder, frame_id) -> (np.dnarray, o3d.ge
     pcd_cloud.points = o3d.utility.Vector3dVector(pcd.point.positions.numpy())
     return image, pcd_cloud, intensity
 
+
+def choose_best_plane(
+        points: np.ndarray,
+        inlier_threshold: float = 0.02
+) -> (np.ndarray, np.ndarray, float):
+    """
+    chooses the best plane using RANSAC algorithm
+    """
+    mask = np.zeros(len(points), dtype=bool)
+    cloud = o3d.t.geometry.PointCloud()
+    cloud.point.positions = o3d.core.Tensor(points)
+    best_eq, inliers = cloud.segment_plane(
+        distance_threshold=inlier_threshold,
+        ransac_n=3,
+        probability=0.85
+    )
+    best_inliers = inliers.numpy()
+    mask[best_inliers] = True
+    confidence = len(best_inliers) / len(mask)
+    return mask, best_eq, confidence

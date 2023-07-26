@@ -37,8 +37,7 @@ folder
 
 
 def collect_time_stamps(
-        folder_in: str,
-        zero_index: bool = True
+        folder_in: str
 ) -> (pd.Series, pd.Series, pd.Series):
     lid_data = pd.read_csv(folder_in + '/lidar/lidar_timestamps.csv')
     try:
@@ -55,17 +54,12 @@ def collect_time_stamps(
             j = json.loads(line)
             W.append(j)
     norm_data, wide_data = pd.DataFrame(N), pd.DataFrame(W)
-    norm_data = norm_data.rename(columns={'frameNumber': 'normal_frame'})
-    wide_data = wide_data.rename(columns={'frameNumber': 'wide_frame'})
     lidar = lid_data.set_index('lidar_frame')['timestamp']
     lidar.name = 'timestamp'
-    normal = norm_data.set_index('normal_frame')['timeStamp']
+    normal = norm_data['timeStamp']
     normal.name = 'norm_timestamp'
-    wide = wide_data.set_index('wide_frame')['timeStamp']
+    wide = wide_data['timeStamp']
     wide.name = 'wide_timestamp'
-    if zero_index:
-        normal.index = normal.index - normal.index.min()
-        wide.index = wide.index - wide.index.min()
     return lidar, normal, wide
 
 
@@ -81,19 +75,20 @@ def associate_frames(
     mins, maxs = np.array([lidar.min(), normal.min(), wide.min()]), np.array([lidar.max(), normal.max(), wide.max()])
     Min, Max = mins.max(), maxs.min()
     lidar = lidar.loc[(lidar >= Min) & (lidar <= Max)]
-    normal = normal.loc[(normal >= Min) & (normal <= Max)]
-    wide = wide.loc[(wide >= Min) & (wide <= Max)]
-
+    normal = normal.loc[(normal >= Min) & (normal <= Max)].reset_index()
+    normal.rename(columns={'index': 'norm_index'}, inplace=True)
+    wide = wide.loc[(wide >= Min) & (wide <= Max)].reset_index()
+    wide.rename(columns={'index': 'wide_index'}, inplace=True)
     total = pd.merge_asof(
         lidar.reset_index(),
-        normal.reset_index(),
+        normal,
         left_on="timestamp", right_on="norm_timestamp",
         direction="nearest",
         allow_exact_matches=True
     )
     total = pd.merge_asof(
-        total.reset_index(),
-        wide.reset_index(),
+        total,
+        wide,
         left_on="timestamp", right_on="wide_timestamp",
         direction="nearest",
         allow_exact_matches=True
@@ -163,12 +158,12 @@ def save_triples(
     create_output_folders(folder_out)
     for index, row in association.iterrows():
         try:
-            norm_in_file = f'{folder_in}/normal_camera/images/{str(int(row["normal_frame"])).zfill(6)}.jpg'
-            norm_out_original_file = f'{folder_out}/normal_camera/original/{str(int(row["index"])).zfill(6)}.jpg'
-            norm_out_undistorted_file = f'{folder_out}/normal_camera/undistorted/{str(int(row["index"])).zfill(6)}.jpg'
-            wide_in_file = f'{folder_in}/wide_camera/images/{str(int(row["wide_frame"])).zfill(6)}.jpg'
-            wide_out_original_file = f'{folder_out}/wide_camera/original/{str(int(row["index"])).zfill(6)}.jpg'
-            wide_out_undistorted_file = f'{folder_out}/wide_camera/undistorted/{str(int(row["index"])).zfill(6)}.jpg'
+            norm_in_file = f'{folder_in}/normal_camera/images/{str(int(row["norm_index"]+1)).zfill(6)}.jpg'
+            norm_out_original_file = f'{folder_out}/normal_camera/original/{str(int(index)).zfill(6)}.jpg'
+            norm_out_undistorted_file = f'{folder_out}/normal_camera/undistorted/{str(int(index)).zfill(6)}.jpg'
+            wide_in_file = f'{folder_in}/wide_camera/images/{str(int(row["wide_index"]+1)).zfill(6)}.jpg'
+            wide_out_original_file = f'{folder_out}/wide_camera/original/{str(int(index)).zfill(6)}.jpg'
+            wide_out_undistorted_file = f'{folder_out}/wide_camera/undistorted/{str(int(index)).zfill(6)}.jpg'
 
             norm_image = np.array(Image.open(norm_in_file))
             wide_image = np.array(Image.open(wide_in_file))
@@ -192,11 +187,12 @@ def save_triples(
             shutil.copy(wide_in_file, wide_out_original_file)
 
             shutil.copy(f'{folder_in}/lidar/pcd/{str(int(row["lidar_frame"])).zfill(6)}.pcd',
-                        f'{folder_out}/lidar/{str(int(row["index"])).zfill(6)}.pcd')
+                        f'{folder_out}/lidar/{str(int(index)).zfill(6)}.pcd')
         except FileNotFoundError:
             print('[WARNING] The number of video frames is less than frames in timestamps.json')
             break
-    association_cut = association.loc[association['index'] <= row["index"]]
+    association['index'] = str(association.index).zfill(6)
+    association_cut = association.loc[association.index <= index]
     association_cut.to_csv(f'{folder_out}/association.csv', index=False)
     print('[DONE] Association is finished')
 
@@ -223,7 +219,6 @@ def flow(
 
 
 if __name__ == '__main__':
-    folder_in = '/Users/brom/Laboratory/GlobalLogic/MEAA/LidarCameraCalibration/data/first'
-    folder_out = '/Users/brom/Laboratory/GlobalLogic/MEAA/LidarCameraCalibration/data/first/RESULT/'
+    folder_in = '/Users/brom/Laboratory/GlobalLogic/MEAA/LidarCameraCalibration/data/third'
+    folder_out = '/Users/brom/Laboratory/GlobalLogic/MEAA/LidarCameraCalibration/data/third/RESULT'
     flow(folder_in=folder_in, folder_out=folder_out)
-
