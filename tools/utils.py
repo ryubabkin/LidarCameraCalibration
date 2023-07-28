@@ -299,7 +299,11 @@ def get_RT(
     return RT
 
 
-def read_input_pair(image_folder, lidar_folder, frame_id) -> (np.dnarray, o3d.geometry.PointCloud, np.ndarray):
+def read_input_pair(
+        image_folder,
+        lidar_folder,
+        frame_id
+) -> (np.dnarray, o3d.geometry.PointCloud, np.ndarray):
     image_name = f'{frame_id}.jpg'
     pcd_files = os.listdir(lidar_folder)
     pcd_name = [file for file in pcd_files if file.split('_')[1].split('.')[0] == frame_id][0]
@@ -328,7 +332,38 @@ def choose_best_plane(
         ransac_n=3,
         probability=0.85
     )
+
+    # best_eq = fit_plane(points[inliers.numpy()])
     best_inliers = inliers.numpy()
     mask[best_inliers] = True
     confidence = len(best_inliers) / len(mask)
-    return mask, best_eq, confidence
+    return mask, best_eq.numpy(), confidence
+
+
+def fit_plane(
+        points: np.ndarray
+) -> np.ndarray:
+    """
+    Method calculates the equation of the plane
+    """
+    XY1 = np.ones((points.shape[0], 3))
+    XY1[:, 0], XY1[:, 1] = points[:, 0], points[:, 1]
+    Z = points[:, 2]
+    (a, b, c), resid, rank, s = np.linalg.lstsq(XY1, Z, rcond=None)
+    normal = np.array([a, b, -1])
+    normal = normal / np.linalg.norm(normal)
+
+    distance = -normal.dot(points.mean(axis=0))
+    plane = np.hstack([normal, distance])
+    return plane
+
+
+def vec2vec(vec1, vec2):
+
+    a, b = (vec1 / np.linalg.norm(vec1)).reshape(3), (vec2 / np.linalg.norm(vec2)).reshape(3)
+    v = np.cross(a, b)
+    c = np.dot(a, b)
+    s = np.linalg.norm(v)
+    kmat = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
+    rotation_matrix = np.eye(3) + kmat + kmat.dot(kmat) * ((1 - c) / (s ** 2))
+    return rotation_matrix

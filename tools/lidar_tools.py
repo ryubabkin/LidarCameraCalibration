@@ -1,10 +1,15 @@
+import random
+
 import numpy as np
 import open3d as o3d
 import pandas as pd
 from sklearn.cluster import DBSCAN
+import shapely as shp
+from sklearn.neighbors import KNeighborsClassifier
 
-from tools.plotting import plot_background_points, plot_training_curve, plot_lidar_chessboard
-from tools.utils import choose_best_plane
+from tools.plotting import plot_background_points, plot_training_curve, plot_lidar_chessboard, \
+    plot_interpolated_lidar_cb
+from tools.utils import choose_best_plane, vec2vec
 
 
 def background_detection(
@@ -70,7 +75,6 @@ def get_difference(
         max_distance: float = 7,
         min_delta: float = 0.1,
 ) -> (np.ndarray, np.ndarray):
-
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(pcd_cloud.point.positions.numpy())
     intensity = np.asarray(pcd_cloud.point.intensity.numpy())
@@ -102,11 +106,11 @@ def get_all_obstacles(
 
 
 def select_chessboard(
-    obstacle_clouds: list,
-    obstacle_intensities: list,
-    plane_confidence_threshold: float = 0.75,
-    plane_inlier_threshold: float = 0.02,
-    median_intensity_threshold: float = None
+        obstacle_clouds: list,
+        obstacle_intensities: list,
+        plane_confidence_threshold: float = 0.75,
+        plane_inlier_threshold: float = 0.02,
+        median_intensity_threshold: float = None
 ) -> list:
     chessboards = []
     for idx, obstacle in enumerate(obstacle_clouds):
@@ -129,11 +133,11 @@ def select_chessboard(
                 f'median_intensity_threshold: {np.round(median_intensity_threshold, 4)}'
             )
             chessboards.append({
-                'cloud' : obstacle,
-                'intensity' : obstacle_intensity,
-                'confidence' : confidence,
-                'median_intensity_threshold' : median_intensity_threshold,
-                'equation' : equation
+                'cloud': obstacle,
+                'intensity': obstacle_intensity,
+                'confidence': confidence,
+                'median_intensity_threshold': median_intensity_threshold,
+                'equation': equation
             })
     return chessboards
 
@@ -176,18 +180,41 @@ def chessboard_detection(
             plane_confidence_threshold=plane_confidence_threshold,
             plane_inlier_threshold=plane_inlier_threshold
         )
-        if plot:
-            plot_lidar_chessboard(
-                chessboards=chessboards,
-                background_points=background_points,
-                indx=indx,
-                folder_out=folder_out
-            )
+        # if indx == 86:
+        #     np.save(f'/Users/brom/Laboratory/GlobalLogic/MEAA/LidarCameraCalibration/data/second/RESULT/chess.npy',
+        #             chessboards[0]['cloud'])
+        #     np.save(f'/Users/brom/Laboratory/GlobalLogic/MEAA/LidarCameraCalibration/data/second/RESULT/intensity.npy',
+        #             chessboards[0]['intensity'])
+        #     print(chessboards[0]['equation'])
+        if len(chessboards) != 0 :
+            cloud = chessboards[0]['cloud']
+            plane_model = chessboards[0]['equation']
+            rt_cloud, RT = lidar_chessboard_RT(cloud=cloud, plane_equation=plane_model)
+            intensity_mask = get_chessboard_intensity_mask(chessboards[0]['intensity'])
+            black_envelope, white_envelope = get_lidar_envelope(rt_cloud, intensity_mask)
+            envelope = white_envelope if white_envelope.area < black_envelope.area else black_envelope
+            coordinates, chessboard_mask = interpolate_lidar_chessboard(envelope, rt_cloud, intensity_mask)
+            inv_RT = (np.linalg.inv(RT))
+            initial_coords = (inv_RT.dot(coordinates.T)).T
+            if plot:
+                plot_interpolated_lidar_cb(
+                    coordinates=initial_coords,
+                    mask=chessboard_mask,
+                    background_points=background_points,
+                    indx=indx,
+                    folder_out=folder_out
+                )
+            # plot_lidar_chessboard(
+            #     chessboards=chessboards,
+            #     background_points=background_points,
+            #     indx=indx,
+            #     folder_out=folder_out
+            # )
 
 
 def IQR_mask(
-    cloud: np.ndarray,
-):
+        cloud: np.ndarray,
+) -> np.ndarray:
     Q75 = np.quantile(cloud, 0.75, axis=0)
     Q25 = np.quantile(cloud, 0.25, axis=0)
     IQR = Q75 - Q25
@@ -199,3 +226,59 @@ def IQR_mask(
     mask = np.logical_and(mask, (cloud[:, 2] < Q75[2] + 1.5 * IQR[2]))
     mask = np.logical_and(mask, (cloud[:, 2] > Q25[2] - 1.5 * IQR[2]))
     return mask
+
+
+def lidar_chessboard_RT(
+        cloud: np.ndarray,
+        plane_equation: np.ndarray
+) -> (np.ndarray, np.ndarray):
+    RT = vec2vec(plane_equation[:3], np.array([0, 0, 1]))
+    return (RT.dot(cloud.T)).T, RT
+
+
+def get_chessboard_intensity_mask(
+        intensity: np.ndarray,
+        intensity_threshold: float = None,
+) -> np.ndarray:
+    if intensity_threshold is None:
+        intensity_threshold = np.median(intensity)
+    mask = np.ones(intensity.shape[0], dtype=bool)
+    mask = np.logical_and(mask, intensity > intensity_threshold)
+    return mask
+
+
+def get_lidar_envelope(
+        cloud: np.ndarray,
+        intensity_mask: np.ndarray
+) -> (shp.Polygon, shp.Polygon):
+    blacks = cloud[~intensity_mask]
+    whites = cloud[intensity_mask]
+
+    black_points = shp.MultiPoint(blacks)
+    white_points = shp.MultiPoint(whites)
+
+    black_envelope = black_points.oriented_envelope
+    white_envelope = white_points.oriented_envelope
+    return black_envelope, white_envelope
+
+
+def interpolate_lidar_chessboard(
+        envelope: shp.Polygon,
+        cloud: np.ndarray,
+        intensity_mask: np.ndarray,
+        n_points: int = 50000
+) -> (np.ndarray, np.ndarray):
+    points = []
+    x_min, x_max = np.min(envelope.exterior.xy[0]), np.max(envelope.exterior.xy[0])
+    y_min, y_max = np.min(envelope.exterior.xy[1]), np.max(envelope.exterior.xy[1])
+    while len(points) < n_points:
+        point = [random.uniform(x_min, x_max), random.uniform(y_min, y_max), cloud[:, 2].mean()]
+        pnt = shp.Point(point)
+        if envelope.contains(pnt):
+            points.append(point)
+
+    coordinates = np.array(points)
+    Y = np.where(intensity_mask, 1, 0)
+    model = KNeighborsClassifier().fit(cloud, Y)
+    interpolated_mask = model.predict(coordinates)
+    return coordinates, interpolated_mask.astype(bool)

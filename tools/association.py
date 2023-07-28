@@ -219,6 +219,6 @@ def flow(
 
 
 if __name__ == '__main__':
-    folder_in = '/Users/brom/Laboratory/GlobalLogic/MEAA/LidarCameraCalibration/data/third'
-    folder_out = '/Users/brom/Laboratory/GlobalLogic/MEAA/LidarCameraCalibration/data/third/RESULT'
+    folder_in = '/Users/brom/Laboratory/GlobalLogic/MEAA/LidarCameraCalibration/data/second'
+    folder_out = '/Users/brom/Laboratory/GlobalLogic/MEAA/LidarCameraCalibration/data/second/RESULT'
     flow(folder_in=folder_in, folder_out=folder_out)
