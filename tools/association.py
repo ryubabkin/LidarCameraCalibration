@@ -158,10 +158,10 @@ def save_triples(
     create_output_folders(folder_out)
     for index, row in association.iterrows():
         try:
-            norm_in_file = f'{folder_in}/normal_camera/images/{str(int(row["norm_index"]+1)).zfill(6)}.jpg'
+            norm_in_file = f'{folder_in}/normal_camera/images/{str(int(row["norm_index"])).zfill(6)}.jpg'
             norm_out_original_file = f'{folder_out}/normal_camera/original/{str(int(index)).zfill(6)}.jpg'
             norm_out_undistorted_file = f'{folder_out}/normal_camera/undistorted/{str(int(index)).zfill(6)}.jpg'
-            wide_in_file = f'{folder_in}/wide_camera/images/{str(int(row["wide_index"]+1)).zfill(6)}.jpg'
+            wide_in_file = f'{folder_in}/wide_camera/images/{str(int(row["wide_index"])).zfill(6)}.jpg'
             wide_out_original_file = f'{folder_out}/wide_camera/original/{str(int(index)).zfill(6)}.jpg'
             wide_out_undistorted_file = f'{folder_out}/wide_camera/undistorted/{str(int(index)).zfill(6)}.jpg'
 
@@ -197,7 +197,7 @@ def save_triples(
     print('[DONE] Association is finished')
 
 
-def flow(
+def association(
         folder_in: str,
         folder_out: str
 ):
@@ -219,6 +219,6 @@ def flow(
 
 
 if __name__ == '__main__':
-    folder_in = '/Users/brom/Laboratory/GlobalLogic/MEAA/LidarCameraCalibration/data/second'
-    folder_out = '/Users/brom/Laboratory/GlobalLogic/MEAA/LidarCameraCalibration/data/second/RESULT'
-    flow(folder_in=folder_in, folder_out=folder_out)
+    folder_in = '/Users/brom/Laboratory/GlobalLogic/MEAA/LidarCameraCalibration/data/third'
+    folder_out = '/Users/brom/Laboratory/GlobalLogic/MEAA/LidarCameraCalibration/data/third/RESULT'
+    association(folder_in=folder_in, folder_out=folder_out)

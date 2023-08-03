@@ -1,15 +1,16 @@
 import random
+import time
 
 import numpy as np
 import open3d as o3d
 import pandas as pd
 from sklearn.cluster import DBSCAN
 import shapely as shp
+from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.neighbors import KNeighborsClassifier
 
-from tools.plotting import plot_background_points, plot_training_curve, plot_lidar_chessboard, \
-    plot_interpolated_lidar_cb
-from tools.utils import choose_best_plane, vec2vec
+from tools.plotting import plot_background_points, plot_training_curve
+from tools.utils import choose_best_plane, vec2vec, sort_4gram, Rz
 
 
 def background_detection(
@@ -20,7 +21,6 @@ def background_detection(
         median_distance_stop: float = 0.004,
         plot: bool = False
 ):
-    print("=== Lidar background detection started ===")
     background_pcd = o3d.geometry.PointCloud()
     points_list, background_points, indx = None, None, 0
     medians, means = [], []
@@ -106,37 +106,38 @@ def get_all_obstacles(
 
 
 def select_chessboard(
-        obstacle_clouds: list,
-        obstacle_intensities: list,
-        plane_confidence_threshold: float = 0.75,
+        clouds: list,
+        intensities: list,
+        plane_confidence_threshold: float = 0.8,
         plane_inlier_threshold: float = 0.02,
         median_intensity_threshold: float = None
 ) -> list:
     chessboards = []
-    for idx, obstacle in enumerate(obstacle_clouds):
-        obstacle_intensity = obstacle_intensities[idx]
-        obstacle_mask = IQR_mask(cloud=obstacle)
-        obstacle_intensity = obstacle_intensity[obstacle_mask]
-        obstacle = obstacle[obstacle_mask]
+    for idx, cloud in enumerate(clouds):
+        cloud_intensity = intensities[idx]
+        cloud_mask = IQR_mask(cloud=cloud)
+        cloud_intensity = cloud_intensity[cloud_mask]
+        cloud = cloud[cloud_mask]
 
         mask, equation, confidence = choose_best_plane(
-            points=obstacle,
+            points=cloud,
             inlier_threshold=plane_inlier_threshold
         )
-        obstacle = obstacle[mask]
-        obstacle_intensity = obstacle_intensity[mask].flatten()
+        cloud = cloud[mask]
+        cloud_intensity = cloud_intensity[mask].flatten()
+
         if confidence > plane_confidence_threshold:
             if median_intensity_threshold is None:
-                median_intensity_threshold = np.median(obstacle_intensity)
+                median_intensity_threshold = np.median(cloud_intensity)
             print(
-                f'confidence: {np.round(confidence, 4)}, '
-                f'median_intensity_threshold: {np.round(median_intensity_threshold, 4)}'
+                f'    Confidence: {np.round(confidence, 4)}, '
+                f'Intensity threshold: {np.round(median_intensity_threshold, 4)}'
             )
+            intensity_mask = get_chessboard_intensity_mask(cloud_intensity)
+            cloud = np.hstack([cloud, intensity_mask.reshape(-1, 1)])
             chessboards.append({
-                'cloud': obstacle,
-                'intensity': obstacle_intensity,
+                'cloud': cloud,
                 'confidence': confidence,
-                'median_intensity_threshold': median_intensity_threshold,
                 'equation': equation
             })
     return chessboards
@@ -144,72 +145,86 @@ def select_chessboard(
 
 def chessboard_detection(
         background_pcd: o3d.geometry.PointCloud,
-        association: pd.DataFrame,
-        background_index: int,
-        folder_in: str,
-        folder_out: str,
+        pcd_cloud: o3d.geometry.PointCloud,
         max_distance: float = 7,
         min_delta: float = 0.1,
         cluster_threshold: float = 0.1,
         min_points_in_cluster: int = 40,
         plane_confidence_threshold: float = 0.75,
         plane_inlier_threshold: float = 0.02,
-        plot: bool = False
-):
-    print("=== Lidar chessboard detection started ===")
-    background_points = np.asarray(background_pcd.points)
-    for indx, row in association.iloc[background_index:].iterrows():
-        print(f"Frame {indx} processing...")
-        #
-        pcd_cloud = o3d.t.io.read_point_cloud(f'{folder_in}/{str(indx).zfill(6)}.pcd')
-        difference, intensity = get_difference(
-            pcd_cloud=pcd_cloud,
-            background_pcd=background_pcd,
-            max_distance=max_distance,
-            min_delta=min_delta
+        cb_cells: tuple = (9, 7),
+        n_points_interpolate: int = 25000,
+        period_resolution: int = 400,
+        grid_steps: int = 20,
+        grid_threshold: float = 0.6,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    start = time.time()
+    cb_cells = (cb_cells[0]+1, cb_cells[1]+1)
+    difference, intensity = get_difference(
+        pcd_cloud=pcd_cloud,
+        background_pcd=background_pcd,
+        max_distance=max_distance,
+        min_delta=min_delta
+    )
+    obstacle_clouds, obstacle_intensities = get_all_obstacles(
+        difference=difference,
+        intensity=intensity,
+        cluster_threshold=cluster_threshold,
+        min_points_in_cluster=min_points_in_cluster
+    )
+    chessboards = select_chessboard(
+        clouds=obstacle_clouds,
+        intensities=obstacle_intensities,
+        plane_confidence_threshold=plane_confidence_threshold,
+        plane_inlier_threshold=plane_inlier_threshold
+    )
+    if len(chessboards) != 0:
+        chessboard = max(chessboards, key=lambda x: x['confidence'])
+        cloud, equation = chessboard['cloud'], chessboard['equation']
+        corrected, RT = lidar_chessboard_RT(
+            cloud=cloud[:, :3],
+            plane_equation=equation
         )
-        obstacle_clouds, obstacle_intensities = get_all_obstacles(
-            difference=difference,
-            intensity=intensity,
-            cluster_threshold=cluster_threshold,
-            min_points_in_cluster=min_points_in_cluster
+        cloud[:, :3] = corrected
+        cloud, intensity_mask = interpolate_lidar_chessboard(
+            cloud=cloud[:, :3],
+            intensity_mask=cloud[:, 3] > 0,
+            n_points=n_points_interpolate
         )
-        chessboards = select_chessboard(
-            obstacle_clouds=obstacle_clouds,
-            obstacle_intensities=obstacle_intensities,
-            plane_confidence_threshold=plane_confidence_threshold,
-            plane_inlier_threshold=plane_inlier_threshold
+
+        rotated, horizontal, vertical, RT = get_cell_period(
+            points=cloud,
+            intensity_mask=intensity_mask,
+            RT=RT,
+            resolution=period_resolution
         )
-        # if indx == 86:
-        #     np.save(f'/Users/brom/Laboratory/GlobalLogic/MEAA/LidarCameraCalibration/data/second/RESULT/chess.npy',
-        #             chessboards[0]['cloud'])
-        #     np.save(f'/Users/brom/Laboratory/GlobalLogic/MEAA/LidarCameraCalibration/data/second/RESULT/intensity.npy',
-        #             chessboards[0]['intensity'])
-        #     print(chessboards[0]['equation'])
-        if len(chessboards) != 0 :
-            cloud = chessboards[0]['cloud']
-            plane_model = chessboards[0]['equation']
-            rt_cloud, RT = lidar_chessboard_RT(cloud=cloud, plane_equation=plane_model)
-            intensity_mask = get_chessboard_intensity_mask(chessboards[0]['intensity'])
-            black_envelope, white_envelope = get_lidar_envelope(rt_cloud, intensity_mask)
-            envelope = white_envelope if white_envelope.area < black_envelope.area else black_envelope
-            coordinates, chessboard_mask = interpolate_lidar_chessboard(envelope, rt_cloud, intensity_mask)
-            inv_RT = (np.linalg.inv(RT))
-            initial_coords = (inv_RT.dot(coordinates.T)).T
-            if plot:
-                plot_interpolated_lidar_cb(
-                    coordinates=initial_coords,
-                    mask=chessboard_mask,
-                    background_points=background_points,
-                    indx=indx,
-                    folder_out=folder_out
-                )
-            # plot_lidar_chessboard(
-            #     chessboards=chessboards,
-            #     background_points=background_points,
-            #     indx=indx,
-            #     folder_out=folder_out
-            # )
+        grid, coeff, diff = get_lidar_grid(
+            image=rotated,
+            shape=cb_cells,
+            vertical=vertical,
+            horizontal=horizontal,
+            intensity_mask=intensity_mask,
+            steps=grid_steps
+        )
+        print(f"    Correlation: {coeff}, Difference: {diff}")
+        print("    Spent time: ", time.time() - start)
+        if coeff > grid_threshold:
+            grid = crop_grid(grid=grid)
+            # TODO /Users/brom/Laboratory/GlobalLogic/MEAA/LidarCameraCalibration/tools/lidar_tools.py:213: FutureWarning: arrays to stack must be passed as a "sequence" type such as list or tuple. Support for non-sequence iterables such as generators is deprecated as of NumPy 1.16 and will raise an error in the future.
+            #   lidar_markers = np.vstack(map(np.ravel, np.meshgrid(grid[0], grid[1]))).T
+            lidar_markers = np.vstack(map(np.ravel, np.meshgrid(grid[0], grid[1]))).T
+            lidar_markers = np.hstack([lidar_markers, np.ones([len(lidar_markers), 1]) * rotated[:, 2].mean()])
+            return np.hstack([rotated, intensity_mask.reshape(-1,1)]), lidar_markers, RT
+    return np.array([]), np.array([]), np.array([])
+
+
+def crop_grid(grid: list[np.ndarray, np.ndarray]) -> list[np.ndarray, np.ndarray]:
+    grid_x, grid_y = grid
+    min_x, max_x = grid_x.min(), grid_x.max()
+    min_y, max_y = grid_y.min(), grid_y.max()
+    grid_x = grid_x[np.logical_and(grid_x > min_x, grid_x < max_x)]
+    grid_y = grid_y[np.logical_and(grid_y > min_y, grid_y < max_y)]
+    return [grid_x, grid_y]
 
 
 def IQR_mask(
@@ -231,9 +246,13 @@ def IQR_mask(
 def lidar_chessboard_RT(
         cloud: np.ndarray,
         plane_equation: np.ndarray
-) -> (np.ndarray, np.ndarray):
+) -> tuple[np.ndarray, np.ndarray]:
     RT = vec2vec(plane_equation[:3], np.array([0, 0, 1]))
-    return (RT.dot(cloud.T)).T, RT
+    RT = Rz(-90) @ RT
+    rotated = (RT.dot(cloud.T)).T
+    corrected, theta = get_correct_rectangle(points=rotated)
+    RT = Rz(theta) @ RT
+    return corrected, RT
 
 
 def get_chessboard_intensity_mask(
@@ -250,7 +269,7 @@ def get_chessboard_intensity_mask(
 def get_lidar_envelope(
         cloud: np.ndarray,
         intensity_mask: np.ndarray
-) -> (shp.Polygon, shp.Polygon):
+) -> tuple[shp.Polygon, shp.Polygon]:
     blacks = cloud[~intensity_mask]
     whites = cloud[intensity_mask]
 
@@ -263,11 +282,16 @@ def get_lidar_envelope(
 
 
 def interpolate_lidar_chessboard(
-        envelope: shp.Polygon,
         cloud: np.ndarray,
         intensity_mask: np.ndarray,
         n_points: int = 50000
-) -> (np.ndarray, np.ndarray):
+) -> tuple[np.ndarray, np.ndarray]:
+    black_envelope, white_envelope = get_lidar_envelope(
+        cloud=cloud,
+        intensity_mask=intensity_mask,
+    )
+    envelope = white_envelope if white_envelope.area < black_envelope.area else black_envelope
+
     points = []
     x_min, x_max = np.min(envelope.exterior.xy[0]), np.max(envelope.exterior.xy[0])
     y_min, y_max = np.min(envelope.exterior.xy[1]), np.max(envelope.exterior.xy[1])
@@ -279,6 +303,156 @@ def interpolate_lidar_chessboard(
 
     coordinates = np.array(points)
     Y = np.where(intensity_mask, 1, 0)
-    model = KNeighborsClassifier().fit(cloud, Y)
-    interpolated_mask = model.predict(coordinates)
+    model_1 = KNeighborsClassifier().fit(cloud, Y)
+    interpolated_mask = model_1.predict(coordinates)
+    model_2 = HistGradientBoostingClassifier().fit(coordinates, interpolated_mask)
+    interpolated_mask = model_2.predict(coordinates)
+
     return coordinates, interpolated_mask.astype(bool)
+
+
+def get_correct_rectangle(
+        points: np.ndarray,
+) -> tuple[np.ndarray, float]:
+    vertices = sort_4gram(pts=points[:, :2])
+    theta = np.rad2deg(np.arctan((vertices[1, 0] - vertices[0, 0]) / (vertices[1, 1] - vertices[0, 1])))
+    rotated = (Rz(theta) @ points.T).T
+    return rotated, theta
+
+
+def get_cell_period(
+        points: np.ndarray,
+        intensity_mask: np.ndarray,
+        RT: np.ndarray,
+        resolution: int = 100,
+) -> tuple[np.ndarray, float, float, np.ndarray]:
+    rotated = points.copy()
+    rotated[:, :3], theta = get_correct_rectangle(points=rotated[:, :3])
+    RT = Rz(theta) @ RT
+
+    xmin = int(rotated[:, 0].min() * resolution)
+    xmax = int(rotated[:, 0].max() * resolution)
+    ymin = int(rotated[:, 1].min() * resolution)
+    ymax = int(rotated[:, 1].max() * resolution)
+    zmax = int(intensity_mask.max())
+
+    xrate = (rotated[:, 0].max() - rotated[:, 0].min())
+    yrate = (rotated[:, 1].max() - rotated[:, 1].min())
+
+    shape = (xmax - xmin + 1, ymax - ymin + 1)
+    img = np.ma.array(np.ones(shape) * (zmax + 1))
+    for i, inp in enumerate(rotated):
+        img[int(inp[0] * resolution - xmin), int(inp[1] * resolution - ymin)] = intensity_mask[i]
+    img.mask = (img == zmax + 1)
+    vertical = do_fourier(
+        image=img,
+        axis=0,
+        rate=xrate
+    )
+    horizontal = do_fourier(
+        image=img,
+        axis=1,
+        rate=yrate
+    )
+    return rotated, horizontal / 2, vertical / 2, RT
+
+
+def ffill_roll(arr, fill=0, axis=0) -> np.ndarray:
+    mask = arr == None
+    replaces = np.roll(arr, 1, axis)
+    slicing = tuple(0 if i == axis else slice(None) for i in range(arr.ndim))
+    replaces[slicing] = fill
+    while np.count_nonzero(mask) > 0:
+        arr[mask] = replaces[mask]
+        mask = arr == None
+        replaces = np.roll(replaces, 1, axis)
+    return arr
+
+
+def do_fourier(
+        image: np.ndarray,
+        axis: int,
+        rate: float
+) -> float:
+    if axis == 1:
+        image = image.T
+    primary_range, secondary_range = image.shape[0], image.shape[1]
+    peaks = []
+    for i in range(secondary_range):
+        vec = image.data[:, i]
+        vec = np.where(vec > 1, None, vec)
+        vec = ffill_roll(vec)
+        vec = vec[vec != None]
+        if len(vec) == 0:
+            continue
+        w = np.fft.fft(vec)
+        freqs = np.fft.fftfreq(vec.shape[0])
+        w = (w.real ** 2 + w.imag ** 2)[freqs > freqs.max() / 25]
+        freqs = freqs[freqs > freqs.max() / 25]
+        peaks.append(1 / (freqs[np.argmax(w)] * primary_range) * rate)
+    return float(np.median(peaks))
+
+
+def get_lidar_grid(
+        image: np.ndarray,
+        vertical: float,
+        horizontal: float,
+        intensity_mask: np.ndarray,
+        shape: tuple,
+        steps: int = 20
+) -> tuple[list[np.ndarray, np.ndarray], float, float]:
+    corrs = []
+    for sh in np.arange(-horizontal/2,  horizontal/2, horizontal / steps):
+        for sv in np.arange(-vertical/3, vertical/3, vertical / steps):
+            coeff, diff = calc_corr(
+                image=image,
+                shift=(sh, sv),
+                shape=shape,
+                vertical=vertical,
+                horizontal=horizontal,
+                intensity_mask=intensity_mask,
+            )
+            corrs.append([sh, sv, coeff, diff])
+    corrs = np.array(corrs)
+    sh, sv, coeff, diff = corrs[np.argmax(corrs[:, 2])]
+
+    center = [
+        (image[:, 0].max() + image[:, 0].min()) / 2 - horizontal * (shape[0]-1) / 2,
+        (image[:, 1].max() + image[:, 1].min()) / 2 - vertical * (shape[1]-1) / 2
+    ]
+    grid_x = np.arange(0, shape[0]) * horizontal + center[0] + sh
+    grid_y = np.arange(0, shape[1]) * vertical + center[1] + sv
+    grid = [grid_x, grid_y]
+    # grid = np.meshgrid(grid_x, grid_y)
+    return grid, coeff, diff
+
+
+def calc_corr(
+        image: np.ndarray,
+        shift: tuple,
+        shape: tuple,
+        vertical: float,
+        horizontal: float,
+        intensity_mask: np.ndarray,
+) -> tuple[float, float]:
+
+    center = [
+        (image[:, 0].max() + image[:, 0].min()) / 2 - horizontal * (shape[0] - 1) / 2,
+        (image[:, 1].max() + image[:, 1].min()) / 2 - vertical * (shape[1] - 1) / 2
+    ]
+    grid_x = np.arange(0, shape[0]) * horizontal + center[0] + shift[0]
+    grid_y = np.arange(0, shape[1]) * vertical + center[1] + shift[1]
+
+    cell_row = np.digitize(image[:, 0], grid_x) - 1
+    cell_column = np.digitize(image[:, 1], grid_y) - 1
+
+    cells_id = np.array([i for i in range(shape[0] * shape[1])]).reshape((shape[0], shape[1]))
+
+    ids = cells_id[cell_row, cell_column]
+    unq, idx, cnt = np.unique(ids, return_inverse=True, return_counts=True)
+    white = np.bincount(idx, weights=intensity_mask)
+    black = np.bincount(idx, weights=intensity_mask-1)
+    diff = np.sum((white + black) / cnt)
+    avg = np.bincount(idx, weights=intensity_mask * 2 - 1) / cnt
+    coeff = np.mean(abs(avg)) * len(unq)/(shape[0] * shape[1])
+    return coeff, diff

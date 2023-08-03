@@ -26,6 +26,28 @@ folder
 """
 
 
+def create_output_folders(
+        folder_out: str
+) -> None:
+    if not os.path.exists(folder_out):
+        os.mkdir(folder_out)
+    if not os.path.exists(f'{folder_out}/lidar'):
+        os.mkdir(f'{folder_out}/lidar')
+    if not os.path.exists(f'{folder_out}/lidar/pcd'):
+        os.mkdir(f'{folder_out}/lidar/pcd')
+
+    if not os.path.exists(f'{folder_out}/normal_camera'):
+        os.mkdir(f'{folder_out}/normal_camera')
+    if not os.path.exists(f'{folder_out}/normal_camera/images'):
+        os.mkdir(f'{folder_out}/normal_camera/images')
+
+    if not os.path.exists(f'{folder_out}/wide_camera'):
+        os.mkdir(f'{folder_out}/wide_camera')
+    if not os.path.exists(f'{folder_out}/wide_camera/images'):
+        os.mkdir(f'{folder_out}/wide_camera/images')
+
+
+
 def float_from_bytes(
         bytes0: bytes,
         big_endian: bool = False
@@ -76,7 +98,7 @@ def extract_video_frames(
     vidcap = cv2.VideoCapture(filename_in)
     vidcap.set(cv2.CAP_PROP_POS_MSEC, start_time_sec * 1000)
     success, image = vidcap.read()
-    count = 1
+    count = 0
     while success:
         cv2.imwrite(output_folder + prefix + '%06d.jpg' % count, image)
         success, image = vidcap.read()
@@ -105,7 +127,8 @@ def extract_rosbag_frames(
             pcd.point["positions"] = o3d.core.Tensor(df_frame.values[:, :3].astype(np.float32))
             pcd.point["intensity"] = o3d.core.Tensor(df_frame.values[:, 3].reshape((-1, 1)).astype(np.float32))
             o3d.t.io.write_point_cloud(output_folder + prefix + '/%06d.pcd' % i, pcd)
-            timestamps = timestamps.append({'lidar_frame': int(i), 'timestamp': timestamp / 1000_000_000}, ignore_index=True)
+            timestamp = {'lidar_frame': int(i), 'timestamp': timestamp / 1000_000_000}
+            timestamps = pd.concat([timestamps, pd.DataFrame([timestamp])], ignore_index=True)
             i += 1
 
     timestamps['lidar_frame'] = timestamps['lidar_frame'].astype(int)
@@ -116,6 +139,9 @@ def extract_rosbag_frames(
 def extract(
     folder_in: str,
 ) -> None:
+    create_output_folders(
+        folder_out=folder_in
+    )
     extract_video_frames(
         filename_in=f'{folder_in}/normal_camera/color.mjpeg',
         output_folder=f'{folder_in}/normal_camera/images/',
@@ -138,3 +164,7 @@ def extract(
         prefix=''
     )
     return
+
+extract(
+    folder_in='/Users/brom/Laboratory/GlobalLogic/MEAA/DATA/updated_rover_setup_v2_GL/refrigerated_maneuvers',
+)
