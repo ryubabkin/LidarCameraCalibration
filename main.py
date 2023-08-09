@@ -1,47 +1,135 @@
+import json
+import time
 
-
+from tools.association import create_output_association_folders
+from tools.flows import Calibration_Flow, Association_Flow
 import os
-import pandas as pd
 
-
-from tools.flows import Calibration_Flow
+from tools.lidar_tools import background_detection
 
 # %%
 
-folder_in = '/Users/brom/Laboratory/GlobalLogic/MEAA/LidarCameraCalibration/data/third/RESULT'
+"""
+Required input folder structure
+
+folder
+|_ lidar
+|  |_ pcd
+|  |   |_ .pcd
+|  |   |_ .pcd
+|  |   |_ ....
+|  |_ lidar_timestamps.csv
+|_ normal_camera
+|  |_ images
+|  |   |_ .jpg
+|  |   |_ .jpg
+|  |   |_ ....
+|  |_ timestamps.json
+|  |_ calib.json
+|_ wide_camera
+   |_ images
+   |   |_ .jpg
+   |   |_ .jpg
+   |   |_ ....
+   |_ timestamps.json
+   |_ calib.json
+"""
+
+# %%
+
+
+def TOOL(
+        settings_file: str,
+        folder_in: str,
+        folder_out: str,
+        calibrate: bool = True,
+        extract: bool = True
+):
+    with open(settings_file, 'r') as file:
+        args_list = json.load(file)
+        file.close()
+    print('[START] Extracting and Association')
+    create_output_association_folders(folder_out=folder_out)
+    association = Association_Flow(
+        folder_in=folder_in,
+        folder_out=folder_out,
+        n_lag_seconds=args_list['lag_seconds_normal'],
+        w_lag_seconds=args_list['lag_seconds_wide'],
+        extract=extract
+    )
+
+    if calibrate:
+
+        print("Lidar background detection...")
+        background_pcd, stop_id = background_detection(
+            association=association,
+            folder=folder_out,
+            max_distance=args_list['max_distance'],
+            median_distance_stop=args_list['median_distance_stop'],
+        )
+        print("[DONE] Lidar background detection")
+        if os.path.isdir(f'{folder_in}/normal_camera/'):
+            print('[START] Normal camera calibration')
+            Calibration_Flow(
+                camera_folder=f'{folder_out}/normal_camera',
+                folder=folder_out,
+                association=association,
+                background_pcd=background_pcd,
+                stop_id=stop_id,
+                elevation=args_list['normal_camera_parameters']['elevation'],
+                angles=args_list['normal_camera_parameters']['angles'],
+                max_distance=args_list['max_distance'],
+                min_points_in_chessboard=args_list['min_points_in_chessboard'],
+                min_delta=args_list['min_delta'],
+                cluster_threshold=args_list['cluster_threshold'],
+                min_points_in_cluster=args_list['min_points_in_cluster'],
+                cb_cells=args_list['chessboard_cells'],
+                n_points_interpolate=args_list['n_points_interpolate'],
+                period_resolution=args_list['period_resolution'],
+                grid_steps=args_list['grid_steps'],
+                grid_threshold=args_list['grid_threshold']
+            )
+            print("[DONE] Normal camera calibration")
+        else:
+            print("[WARNING] Normal camera folder not found")
+        if os.path.isdir(f'{folder_in}/wide_camera/'):
+            print('[START] Wide camera calibration')
+            Calibration_Flow(
+                camera_folder=f'{folder_out}/wide_camera',
+                folder=folder_out,
+                association=association,
+                background_pcd=background_pcd,
+                stop_id=stop_id,
+                elevation=args_list['wide_camera_parameters']['elevation'],
+                angles=args_list['wide_camera_parameters']['angles'],
+                max_distance=args_list['max_distance'],
+                min_points_in_chessboard=args_list['min_points_in_chessboard'],
+                min_delta=args_list['min_delta'],
+                cluster_threshold=args_list['cluster_threshold'],
+                min_points_in_cluster=args_list['min_points_in_cluster'],
+                cb_cells=args_list['chessboard_cells'],
+                n_points_interpolate=args_list['n_points_interpolate'],
+                period_resolution=args_list['period_resolution'],
+                grid_steps=args_list['grid_steps'],
+                grid_threshold=args_list['grid_threshold']
+            )
+            print("[DONE] Wide camera calibration")
+        else:
+            print("[WARNING] Wide camera folder not found")
+    print("====== DONE ======")
+
+# %%
+
+folder_in = '/Users/brom/Laboratory/GlobalLogic/MEAA/LidarCameraCalibration/data/fourth'
 folder_out = f'{folder_in}/output'
-if not os.path.exists(folder_out):
-    os.mkdir(folder_out)
-if not os.path.exists(f'{folder_out}/lidar'):
-    os.mkdir(f'{folder_out}/lidar')
-if not os.path.exists(f'{folder_out}/images'):
-    os.mkdir(f'{folder_out}/images')
-if not os.path.exists(f'{folder_out}/data'):
-    os.mkdir(f'{folder_out}/data')
+settings_file = './settings.json'
 
-normal_folder = f'{folder_in}/normal_camera/'
-wide_folder = f'{folder_in}/wide_camera/'
-lidar_folder = f'{folder_in}/lidar/'
-association = pd.read_csv(f'{folder_in}/association.csv')
-
-# %%
-min_delta = 0.1
-max_distance = 7
-median_distance_stop = 0.004
-cluster_threshold = 0.1
-min_points_in_cluster = 100
-plane_confidence_threshold = 0.75
-plane_inlier_threshold = 0.02
-
-
-Calibration_Flow(
-    camera_folder=normal_folder,
-    lidar_folder=lidar_folder,
-    association=association,
+start = time.time()
+TOOL(
+    settings_file=settings_file,
+    folder_in=folder_in,
     folder_out=folder_out,
-    max_distance=max_distance,
-    median_distance_stop=median_distance_stop,
-    min_delta=min_delta,
-    cluster_threshold=cluster_threshold,
-    min_points_in_cluster=min_points_in_cluster,
+    calibrate=True,
+    extract=False
 )
+print(time.time() - start)

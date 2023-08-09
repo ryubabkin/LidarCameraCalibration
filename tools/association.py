@@ -7,7 +7,7 @@ import json
 import os
 from PIL import Image
 
-from utils import NpEncoder
+from tools.utils import NpEncoder
 
 """
 Required input folder structure
@@ -67,8 +67,8 @@ def associate_frames(
         lidar: pd.Series,
         normal: pd.Series,
         wide: pd.Series,
-        n_lag: int = 0,
-        w_lag: int = 0
+        n_lag: float = 0.0,
+        w_lag: float = 0.0
 ) -> pd.DataFrame:
     normal += n_lag
     wide += w_lag
@@ -98,7 +98,7 @@ def associate_frames(
     return total
 
 
-def create_output_folders(
+def create_output_association_folders(
         folder_out: str
 ) -> None:
     if not os.path.exists(folder_out):
@@ -112,6 +112,8 @@ def create_output_folders(
         os.mkdir(f'{folder_out}/normal_camera/original')
     if not os.path.exists(f'{folder_out}/normal_camera/undistorted'):
         os.mkdir(f'{folder_out}/normal_camera/undistorted')
+    if not os.path.exists(f'{folder_out}/normal_camera/visualization'):
+        os.mkdir(f'{folder_out}/normal_camera/visualization')
 
     if not os.path.exists(f'{folder_out}/wide_camera'):
         os.mkdir(f'{folder_out}/wide_camera')
@@ -119,6 +121,8 @@ def create_output_folders(
         os.mkdir(f'{folder_out}/wide_camera/original')
     if not os.path.exists(f'{folder_out}/wide_camera/undistorted'):
         os.mkdir(f'{folder_out}/wide_camera/undistorted')
+    if not os.path.exists(f'{folder_out}/wide_camera/visualization'):
+        os.mkdir(f'{folder_out}/wide_camera/visualization')
 
 
 def undistort_image(
@@ -155,7 +159,6 @@ def save_triples(
         folder_in: str,
         folder_out: str
 ):
-    create_output_folders(folder_out)
     for index, row in association.iterrows():
         try:
             norm_in_file = f'{folder_in}/normal_camera/images/{str(int(row["norm_index"])).zfill(6)}.jpg'
@@ -191,34 +194,7 @@ def save_triples(
         except FileNotFoundError:
             print('[WARNING] The number of video frames is less than frames in timestamps.json')
             break
-    association['index'] = str(association.index).zfill(6)
+    association['index'] = association.index.astype(str)
+    association['index'] = association['index'].str.zfill(6)
     association_cut = association.loc[association.index <= index]
     association_cut.to_csv(f'{folder_out}/association.csv', index=False)
-    print('[DONE] Association is finished')
-
-
-def association(
-        folder_in: str,
-        folder_out: str
-):
-    L, N, W = collect_time_stamps(
-        folder_in=folder_in,
-    )
-    associated_frames = associate_frames(
-        lidar=L,
-        normal=N,
-        wide=W,
-        n_lag=0,
-        w_lag=0
-    )
-    save_triples(
-        association=associated_frames,
-        folder_in=folder_in,
-        folder_out=folder_out
-    )
-
-
-if __name__ == '__main__':
-    folder_in = '/Users/brom/Laboratory/GlobalLogic/MEAA/LidarCameraCalibration/data/third'
-    folder_out = '/Users/brom/Laboratory/GlobalLogic/MEAA/LidarCameraCalibration/data/third/RESULT'
-    association(folder_in=folder_in, folder_out=folder_out)

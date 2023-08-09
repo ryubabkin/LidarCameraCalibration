@@ -26,7 +26,7 @@ folder
 """
 
 
-def create_output_folders(
+def create_output_extraction_folders(
         folder_out: str
 ) -> None:
     if not os.path.exists(folder_out):
@@ -45,7 +45,6 @@ def create_output_folders(
         os.mkdir(f'{folder_out}/wide_camera')
     if not os.path.exists(f'{folder_out}/wide_camera/images'):
         os.mkdir(f'{folder_out}/wide_camera/images')
-
 
 
 def float_from_bytes(
@@ -139,32 +138,6 @@ def extract_rosbag_frames(
 def extract(
     folder_in: str,
 ) -> None:
-    create_output_folders(
-        folder_out=folder_in
-    )
-    extract_video_frames(
-        filename_in=f'{folder_in}/normal_camera/color.mjpeg',
-        output_folder=f'{folder_in}/normal_camera/images/',
-        prefix='',
-        start_time_sec=0,
-        end_time_sec=None
-    )
-    extract_video_frames(
-        filename_in=f'{folder_in}/wide_camera/color.mjpeg',
-        output_folder=f'{folder_in}/wide_camera/images/',
-        prefix='',
-        start_time_sec=0,
-        end_time_sec=None
-    )
-    rosbag_folder = [folder for folder in os.listdir(f'{folder_in}/lidar/') if folder.startswith("rosbag2")][0]
-    extract_rosbag_frames(
-        rosbag_folder=f'{folder_in}/lidar/{rosbag_folder}',
-        output_folder=f'{folder_in}/lidar/pcd/',
-        timestamps_file=f'{folder_in}/lidar/lidar_timestamps.csv',
-        prefix=''
-    )
+
     return
 
-extract(
-    folder_in='/Users/brom/Laboratory/GlobalLogic/MEAA/DATA/updated_rover_setup_v2_GL/refrigerated_maneuvers',
-)

@@ -1,35 +1,7 @@
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
-import shapely as shp
-
-def plot_background_points(
-        points: np.ndarray,
-        background_points: np.ndarray,
-        intensity: np.ndarray,
-        indx: int,
-    folder_out: str
-):
-    plt.figure(figsize=(15, 10))
-    ax1 = plt.subplot(311)
-    ax2 = plt.subplot(312)
-    ax3 = plt.subplot(313)
-    try:
-        ax1.scatter(background_points[:, 1], background_points[:, 0], c='lightgray', alpha=0.2)
-        ax2.scatter(background_points[:, 1], background_points[:, 2], c='lightgray', alpha=0.2)
-        ax3.scatter(background_points[:, 0], background_points[:, 2], c='lightgray', alpha=0.2)
-    except:
-        pass
-    ax1.scatter(points[:, 1], points[:, 0], c=intensity, alpha=0.5)
-    ax2.scatter(points[:, 1], points[:, 2], c=intensity, alpha=0.5)
-    ax3.scatter(points[:, 0], points[:, 2], c=intensity, alpha=0.5)
-
-    ax1.invert_xaxis()
-    ax1.set_title(indx)
-    ax2.invert_xaxis()
-    plt.tight_layout()
-    plt.savefig(f'{folder_out}/lidar/{indx}.png', dpi=120)
-    plt.close()
+import open3d as o3d
 
 
 def plot_training_curve(
@@ -44,46 +16,63 @@ def plot_training_curve(
     plt.show()
 
 
-def plot_lidar_chessboard(
-        chessboard: np.ndarray,
-        markers: np.ndarray,
-        indx: int,
-        folder_out: str
-):
-    blacks = chessboard[chessboard[:, 3] == 0][:, :3]
-    whites = chessboard[chessboard[:, 3] == 1][:, :3]
-
-    plt.figure(figsize=(10, 5))
-    ax = plt.subplot(111)
-    ax.scatter(blacks[:, 0], blacks[:, 1], s=1, c='red')
-    ax.scatter(whites[:, 0], whites[:, 1], s=1, c='lightblue')
-    ax.scatter(markers[:, 0], markers[:, 1], marker="$\u25EF$", edgecolor='k', s=100)
-
-    ax.invert_xaxis()
-    ax.axis("off")
-    plt.tight_layout()
-    plt.savefig(f'{folder_out}/lidar/{indx}.png', dpi=120)
-    plt.close()
-
-
-def plot_cb_corners_camera(
-        image: np.ndarray,
-        corners: np.ndarray,
+def plot_result(
+        img: np.ndarray,
+        image_lidar: np.ndarray,
+        intensity: np.ndarray,
         folder_out: str,
-        indx: int
+           idx: int
 ):
-    gray = cv2.cvtColor(
-        src=image,
-        code=cv2.COLOR_GRAY2BGR
-    )
-    MIN, MAX = corners.min(axis=0), corners.max(axis=0)
-    plt.figure()
-    plt.imshow(gray)
-    plt.scatter(corners[:, 0], corners[:, 1], marker="$\u25EF$", edgecolor='lime', s=50)
-    plt.xlim(MIN[0] - 100, MAX[0] + 100)
-    plt.ylim(MAX[1] + 100, MIN[1] - 100)
-    plt.axis('off')
+    intensity = intensity[
+        (image_lidar[:, 0] >= 0) &
+        (image_lidar[:, 0] <= img.shape[1]) &
+        (image_lidar[:, 1] >= 0) &
+        (image_lidar[:, 1] <= img.shape[0])
+    ]
+
+    image_lidar = image_lidar[
+        (image_lidar[:, 0] >= 0) &
+        (image_lidar[:, 0] <= img.shape[1]) &
+        (image_lidar[:, 1] >= 0) &
+        (image_lidar[:, 1] <= img.shape[0])
+    ]
+
+    plt.figure(figsize=(15, 7))
+    plt.scatter(image_lidar[:, 0], image_lidar[:, 1], c=intensity, s=2)
+    plt.imshow(img)
+    plt.axis("off")
     plt.tight_layout()
-    plt.savefig(f'{folder_out}/images/{indx}.png', dpi=120)
-    # plt.show()
+    plt.savefig(f'{folder_out}/{str(idx).zfill(6)}.png', dpi=200)
     plt.close()
+
+
+def visualize_result(
+        folder: str,
+        camera_folder: str,
+        indx: int,
+        intrinsic: np.ndarray,
+        distortion: np.ndarray,
+        RT_matrix: np.ndarray
+):
+
+    pcd_cloud = o3d.t.io.read_point_cloud(f'{folder}/lidar/{str(indx).zfill(6)}.pcd')
+    points = np.asarray(o3d.utility.Vector3dVector(pcd_cloud.point.positions.numpy()))
+    intensity = np.asarray(pcd_cloud.point.intensity.numpy())
+
+    image = cv2.imread(f'{camera_folder}/original/{str(indx).zfill(6)}.jpg')
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    image = cv2.undistort(image, intrinsic, distortion)
+
+    LI = np.ones([points.shape[0], 4])
+    LI[:, :3] = points
+    image_lidar = (intrinsic @ RT_matrix @ LI.T)
+    image_lidar[:2] /= image_lidar[2, :]
+    image_lidar = image_lidar.T
+
+    plot_result(
+        img=image,
+        image_lidar=image_lidar,
+        intensity=intensity,
+        folder_out=f'{camera_folder}/visualization',
+        idx=indx
+    )

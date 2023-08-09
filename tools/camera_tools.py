@@ -1,16 +1,13 @@
+import json
+
 import cv2
 import numpy as np
-
-from tools.plotting import plot_cb_corners_camera
 
 
 def find_chessboard_corners_camera(
         image: np.ndarray,
-        folder_out: str,
         cb_size: tuple = (8, 6),
-        win_size: int = (11, 11),
-        idx: int = 0,
-        plot: bool = True
+        win_size: int = (11, 11)
 ) -> np.ndarray:
     gray = cv2.cvtColor(
         src=image.copy(),
@@ -31,13 +28,6 @@ def find_chessboard_corners_camera(
         criteria=criteria
     )
     corners_sub_pix = corners_sub_pix.reshape((corners_sub_pix.shape[0], 2))
-    if plot:
-        plot_cb_corners_camera(
-            image=gray.copy(),
-            corners=corners_sub_pix,
-            folder_out=folder_out,
-            indx=idx,
-        )
     return corners_sub_pix
 
 
@@ -47,7 +37,7 @@ def calculate_RT(
         intrinsic: np.ndarray,
         distortion: np.ndarray
 ) -> np.ndarray:
-    _, rvec, tvec = cv2.solvePnP(
+    _, rvec, tvec, _ = cv2.solvePnPRansac(
         objectPoints=lidar_markers,
         imagePoints=image_markers,
         cameraMatrix=intrinsic,
@@ -56,3 +46,37 @@ def calculate_RT(
     R, _ = cv2.Rodrigues(rvec)
     RT = np.hstack((R, tvec))
     return RT
+
+
+def prepare_params_json(
+        folder: str,
+        camera_params: dict,
+        RT_matrix: np.ndarray,
+        elevation: float = 0.0,
+        angles: tuple = (0, 0, 0),
+        resolution: tuple = (1920, 1080),
+):
+    params = {
+        "lidar_extrinsic": {
+            "rotation_x": -0.499039,
+            "rotation_y": 0.518256,
+            "rotation_z": -0.491861,
+            "rotation_w": 0.490350,
+            "x": 0.07509793586623727,
+            "y": 1.1985334811054549,
+            "z": 0.019436941577036237,
+            "f_x": camera_params['new_intrinsic'][0][0],
+            "f_y": camera_params['new_intrinsic'][1][1],
+            "c_x": camera_params['new_intrinsic'][0][2],
+            "c_y": camera_params['new_intrinsic'][1][2]
+        },
+
+        "intrinsic": camera_params['intrinsic'],
+        "distortion": camera_params['distortion'],
+        "elevation": elevation,
+        "angles": list(angles),
+        "resolution": list(resolution)
+    }
+    with open(f'{folder}/calib.json', 'w') as f:
+        json.dump(params, f, indent=4)
+        f.close()

@@ -1,0 +1,25 @@
+{
+    "chessboard_cells" : [9, 7],
+    "cluster_threshold" : 0.1,
+    "grid_threshold" : 0.5,
+    "grid_steps" : 20,
+    "lag_seconds_normal": 0.0,
+    "lag_seconds_wide": 0.0,
+    "max_distance" : 7,
+    "median_distance_stop" : 0.004,
+    "min_delta" : 0.1,
+    "min_points_in_cluster" : 40,
+    "min_points_in_chessboard" : 300,
+    "n_points_interpolate" : 25000,
+    "period_resolution" : 400,
+    "plane_confidence_threshold" : 0.75,
+    "plane_inlier_threshold" : 0.02,
+    "wide_camera_parameters" : {
+        "elevation" : 0.0,
+        "angles" : [0.0, 0.0, 0.0]
+    },
+    "normal_camera_parameters" : {
+        "elevation" : 3.2512,
+        "angles" : [10.1, 0.7, 0]
+    }
+}

@@ -1,120 +1,159 @@
 import json
+import os
 
 import cv2
 import open3d as o3d
-import time
 import numpy as np
 import pandas as pd
-from matplotlib import pyplot as plt
-
 import tools.lidar_tools as LT
-from tools.camera_tools import find_chessboard_corners_camera, calculate_RT
-from tools.plotting import plot_lidar_chessboard
+from tools.association import save_triples, associate_frames, collect_time_stamps
+from tools.camera_tools import find_chessboard_corners_camera, calculate_RT, prepare_params_json
+from tools.extraction import extract_video_frames, create_output_extraction_folders, extract_rosbag_frames
+from tools.plotting import visualize_result
 
 
 def Calibration_Flow(
+        folder: str,
         camera_folder: str,
-        lidar_folder: str,
         association: pd.DataFrame,
-        folder_out: str,
+        background_pcd: o3d.geometry.PointCloud,
+        stop_id: int,
+        elevation: float = 0.0,
+        angles: tuple = (0.0, 0.0, 0.0),
         max_distance: float = 7,
-        median_distance_stop: float = 0.004,
         min_delta: float = 0.1,
         cluster_threshold: float = 0.1,
         min_points_in_cluster: int = 40,
+        min_points_in_chessboard: int = 300,
         plane_confidence_threshold: float = 0.75,
         plane_inlier_threshold: float = 0.02,
         cb_cells: tuple = (9, 7),
         n_points_interpolate: int = 25000,
         period_resolution: int = 400,
         grid_steps: int = 20,
-        grid_threshold: float = 0.6,
+        grid_threshold: float = 0.55,
 ):
     with open(f'{camera_folder}/calib.json', 'r') as f:
         camera_params = json.load(f)
-    intrinsic, distortion = np.array(camera_params['intrinsic']), np.array(camera_params['distortion'])
-
-    print("=== Lidar background detection started ===")
-    background_pcd, stop_id = LT.background_detection(
-        association=association,
-        folder_in=lidar_folder,
-        folder_out=folder_out,
-        max_distance=max_distance,
-        median_distance_stop=median_distance_stop,
-        plot=False
-    )
-    print("=== Chessboard detection started ===")
+    intrinsic, distortion = np.array(camera_params['new_intrinsic']), np.array(camera_params['distortion'])
+    print("Chessboard detection...")
+    lidar_markers_set, camera_markers_set = [], []
     for indx, row in association.iloc[stop_id:].iterrows():
-        print(f"Frame {indx} processing...")
+        print(f"    Frame {indx} processing...")
+        try:
+            pcd_cloud = o3d.t.io.read_point_cloud(f'{folder}/lidar/{str(indx).zfill(6)}.pcd')
+            lidar_markers = LT.chessboard_detection(
+                background_pcd=background_pcd,
+                pcd_cloud=pcd_cloud,
+                max_distance=max_distance,
+                min_delta=min_delta,
+                cluster_threshold=cluster_threshold,
+                min_points_in_cluster=min_points_in_cluster,
+                min_points_in_chessboard=min_points_in_chessboard,
+                plane_confidence_threshold=plane_confidence_threshold,
+                plane_inlier_threshold=plane_inlier_threshold,
+                cb_cells=cb_cells,
+                n_points_interpolate=n_points_interpolate,
+                period_resolution=period_resolution,
+                grid_steps=grid_steps,
+                grid_threshold=grid_threshold,
+            )
+            if lidar_markers.shape[0] != 0:
+                print("        The chessboard was found.")
+                print("        Saving data...")
+                img = cv2.imread(f'{camera_folder}/original/{str(indx).zfill(6)}.jpg')
+                camera_markers = find_chessboard_corners_camera(
+                    image=img
+                )
+                lidar_markers_set.append(lidar_markers)
+                camera_markers_set.append(camera_markers)
+        except cv2.error as e:
+            print("[ERROR] ", e)
+            continue
 
-        pcd_cloud = o3d.t.io.read_point_cloud(f'{lidar_folder}/{str(indx).zfill(6)}.pcd')
-        chessboard, lidar_markers, grid_RT = LT.chessboard_detection(
-            background_pcd=background_pcd,
-            pcd_cloud=pcd_cloud,
-            max_distance=max_distance,
-            min_delta=min_delta,
-            cluster_threshold=cluster_threshold,
-            min_points_in_cluster=min_points_in_cluster,
-            plane_confidence_threshold=plane_confidence_threshold,
-            plane_inlier_threshold=plane_inlier_threshold,
-            cb_cells=cb_cells,
-            n_points_interpolate=n_points_interpolate,
-            period_resolution=period_resolution,
-            grid_steps=grid_steps,
-            grid_threshold=grid_threshold,
+    lidar_markers = np.vstack(lidar_markers_set)
+    camera_markers = np.vstack(camera_markers_set)
+
+    RT_matrix = calculate_RT(
+        lidar_markers=lidar_markers,
+        image_markers=camera_markers,
+        intrinsic=intrinsic,
+        distortion=distortion,
+    )
+    print("[DONE] Calibration finished")
+    print("Visualization...")
+    for id, row in association.iloc[stop_id:].sample(20).iterrows():
+        visualize_result(
+            folder=folder,
+            camera_folder=camera_folder,
+            indx=id,
+            intrinsic=intrinsic,
+            distortion=distortion,
+            RT_matrix=RT_matrix
         )
-        if lidar_markers.shape[0] != 0:
-            print("    The chessboard was found.")
-            print("    Saving data...")
-            img = cv2.imread(f'{camera_folder}/undistorted/{str(indx).zfill(6)}.jpg')
-            camera_markers = find_chessboard_corners_camera(
-                image=img,
-                folder_out=folder_out,
-                idx=indx
-            )
-            RT_matrix = calculate_RT(
-                lidar_markers=lidar_markers,
-                image_markers=camera_markers,
-                intrinsic=intrinsic,
-                distortion=None,
-            )
 
-            LM = np.ones([lidar_markers.shape[0], 4])
-            LM[:, :3] = lidar_markers
-            image_lidar_markers = (intrinsic @ RT_matrix@(LM.T))
-            image_lidar_markers[:2] /= image_lidar_markers[2, :]
-            image_lidar_markers = image_lidar_markers.T
-
-            plt.figure(figsize=(7,7))
-            plt.scatter(camera_markers[:, 0], camera_markers[:, 1], marker="$\u25EF$", edgecolor='lime', s=125,
-                        label='camera')
-            plt.scatter(image_lidar_markers[:, 0], image_lidar_markers[:, 1],  marker="$\u25EF$", edgecolor='r', s=125,
-                        label='lidar')
-            plt.imshow(img)
-            plt.legend()
-            plt.xlim(camera_markers[:, 0].min() - 50, camera_markers[:, 0].max() + 50)
-            plt.ylim(camera_markers[:, 1].max() + 50, camera_markers[:, 1].min() - 50)
-            plt.axis("off")
-            plt.tight_layout()
-            plt.show()
-
-            # plot_lidar_chessboard(
-            #     chessboard=chessboard,
-            #     markers=lidar_markers,
-            #     indx=indx,
-            #     folder_out=folder_out,
-            # )
-            print()
-            # np.save(f'{folder_out}/data/{str(indx).zfill(6)}.npy', chessboards)
+    print("[DONE] Visualization finished")
+    prepare_params_json(
+        folder=camera_folder,
+        camera_params=camera_params,
+        RT_matrix=RT_matrix,
+        elevation=elevation,
+        angles=angles
+    )
 
 
-# def transform():
-#     LT = LT + np.array([x, y, z])
-#     # update rotation matrix
-#     LR = utils.Rx(a) @ utils.Ry(b) @ utils.Rz(c) @ LR
-#
-#     # apply extrinsic to point cloud
-#     transformed_points = LR @ points + LT.reshape(-1, 1)
-#     depths = transformed_points[2, :]
-#     # apply intrinsic to point cloud
-#     transformed_points = utils.view_points(transformed_points[:3, :], intrinsic, normalize=True)
+def Association_Flow(
+        folder_in: str,
+        folder_out: str,
+        n_lag_seconds: float = 0.0,
+        w_lag_seconds: float = 0.0,
+        extract: bool = True,
+) -> pd.DataFrame:
+    if extract:
+        create_output_extraction_folders(
+            folder_out=folder_in
+        )
+        print('Extracting normal camera frames...')
+        extract_video_frames(
+            filename_in=f'{folder_in}/normal_camera/color.mjpeg',
+            output_folder=f'{folder_in}/normal_camera/images/',
+            prefix='',
+            start_time_sec=0,
+            end_time_sec=None
+        )
+        print('Extracting wide camera frames...')
+        extract_video_frames(
+            filename_in=f'{folder_in}/wide_camera/color.mjpeg',
+            output_folder=f'{folder_in}/wide_camera/images/',
+            prefix='',
+            start_time_sec=0,
+            end_time_sec=None
+        )
+        print('Extracting lidar frames...')
+        rosbag_folder = [folder for folder in os.listdir(f'{folder_in}/lidar/') if folder.startswith("rosbag2")][0]
+        extract_rosbag_frames(
+            rosbag_folder=f'{folder_in}/lidar/{rosbag_folder}',
+            output_folder=f'{folder_in}/lidar/pcd/',
+            timestamps_file=f'{folder_in}/lidar/lidar_timestamps.csv',
+            prefix=''
+        )
+        print('[DONE] Extraction is finished')
+    lidar, normal, wide = collect_time_stamps(
+        folder_in=folder_in,
+    )
+    print('Association...')
+    associated_frames = associate_frames(
+        lidar=lidar,
+        normal=normal,
+        wide=wide,
+        n_lag=n_lag_seconds,
+        w_lag=w_lag_seconds
+    )
+    print('Saving...')
+    save_triples(
+        association=associated_frames,
+        folder_in=folder_in,
+        folder_out=folder_out
+    )
+    print('[DONE] Association is finished')
+    return associated_frames

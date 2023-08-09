@@ -11,24 +11,6 @@ import shapely as shp
 import os
 
 
-class DotDict(dict):
-    """
-    a dictionary that supports dot notation
-    as well as dictionary access notation
-    usage: d = DotDict() or d = DotDict({'val1':'first'})
-    set attributes: d.val2 = 'second' or d['val2'] = 'second'
-    get attributes: d.val2 or d['val2']
-    """
-
-    def __getattr__(self, attr):
-        if attr.startswith('__'):
-            raise AttributeError
-        return self.get(attr, None)
-
-    __setattr__ = dict.__setitem__
-    __delattr__ = dict.__delitem__
-
-
 class NpEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, (np.int_, np.intc, np.intp, np.int8,
@@ -56,7 +38,7 @@ class NpEncoder(json.JSONEncoder):
 
 def from_pcd(
         file_name: str
-) -> (np.ndarray, np.ndarray):
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Read pcd file
     """
@@ -127,27 +109,6 @@ def Rz(
         return r
     else:
         return rot
-
-
-def matrix_to_angles(matrix: np.ndarray) -> np.ndarray:
-    if matrix.shape[0] == 4:
-        matrix = matrix[:3, :3]
-    return Rotation.from_matrix(matrix).as_euler('xyz', degrees=True)
-
-
-def quat_to_matrix(quaternion: np.ndarray) -> np.ndarray:
-    return Rotation.from_quat(quaternion).as_matrix()
-
-
-def angles_to_matrix(angles: list | np.ndarray | tuple, dim: int = 4) -> np.ndarray:
-    mat = Rotation.from_euler('xyz', angles, degrees=True).as_matrix()
-    if dim == 4:
-        matrix = np.eye(4)
-        matrix[:3, :3] = mat
-        return matrix
-    else:
-        matrix = mat
-    return matrix
 
 
 def sort_contour(
@@ -237,86 +198,6 @@ def get_segmentation_box(contour: np.ndarray) -> np.ndarray:
     return sort_4gram(pts=box)
 
 
-def get_best_4gram(
-        contour: np.ndarray,
-        sort=True
-) -> np.ndarray:
-    """
-    A sequence of getting best-fit quadrilateral as an average between the best inner and best outer quadrilaterals
-    """
-    if sort:
-        contour = sort_contour(points=contour)
-    inner = get_inner_4gram(contour=contour)
-    outer = get_outer_4gram(contour=contour, inner=inner)
-    inner = sort_4gram(pts=inner)
-    outer = sort_4gram(pts=outer)
-    interm = (inner + outer) / 2
-    return interm
-
-
-def select_segment_on_lidar(
-        cloud: np.ndarray,
-        segment: np.ndarray,
-        camera
-) -> (np.ndarray, np.ndarray):
-    """
-    Selects lidar points that are surrounded by a contour on image
-    """
-    img_pcd, _ = camera.lidar_to_image(cloud, crop=False)
-    # img_pcd = camera.undistort_points(img_pcd)
-    polygon = mplPath.Path(segment)
-    mask = polygon.contains_points(img_pcd.T.astype(int))
-    return cloud[:, mask], mask
-
-
-def IoU(
-        a: np.ndarray,
-        b: np.ndarray
-) -> float:
-    """
-    Calculate intersection over union (2d)
-    """
-    a_poly, b_poly = shp.Polygon(a), shp.Polygon(b)
-    intersection = a_poly.intersection(b_poly).area
-    union = a_poly.union(b_poly).area
-    iou = intersection / union
-    return iou
-
-
-def get_RT(
-        rot_angles: tuple,  # (pitch, roll, yaw)
-        trans_shifts: tuple,  # ( --, / , | )
-        inv: bool
-) -> np.ndarray:
-    """
-    create Rotation-translation matrix (RT). If inv==True - calculates an inverted one
-    """
-    RT = angles_to_matrix(angles=rot_angles)
-    RT[:3, 3] = trans_shifts
-    RT = RT @ Rz(90, f=True)
-    if inv:
-        RT = np.linalg.inv(RT)
-    return RT
-
-
-def read_input_pair(
-        image_folder,
-        lidar_folder,
-        frame_id
-) -> (np.dnarray, o3d.geometry.PointCloud, np.ndarray):
-    image_name = f'{frame_id}.jpg'
-    pcd_files = os.listdir(lidar_folder)
-    pcd_name = [file for file in pcd_files if file.split('_')[1].split('.')[0] == frame_id][0]
-
-    # image = mpimg.imread(os.path.join(image_folder, image_name))
-    image = None
-    pcd = o3d.t.io.read_point_cloud(os.path.join(lidar_folder, pcd_name))
-    intensity = pcd.point.intensity.numpy()
-    pcd_cloud = o3d.geometry.PointCloud()
-    pcd_cloud.points = o3d.utility.Vector3dVector(pcd.point.positions.numpy())
-    return image, pcd_cloud, intensity
-
-
 def choose_best_plane(
         points: np.ndarray,
         inlier_threshold: float = 0.02
@@ -367,3 +248,4 @@ def vec2vec(vec1, vec2):
     kmat = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
     rotation_matrix = np.eye(3) + kmat + kmat.dot(kmat) * ((1 - c) / (s ** 2))
     return rotation_matrix
+
