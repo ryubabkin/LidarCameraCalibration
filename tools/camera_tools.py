@@ -1,5 +1,5 @@
 import json
-
+from scipy.spatial.transform import Rotation
 import cv2
 import numpy as np
 
@@ -35,17 +35,23 @@ def calculate_RT(
         lidar_markers: np.ndarray,
         image_markers: np.ndarray,
         intrinsic: np.ndarray,
-        distortion: np.ndarray
-) -> np.ndarray:
-    _, rvec, tvec, _ = cv2.solvePnPRansac(
+        distortion: np.ndarray,
+        reprojection_error: float = 20,
+) -> tuple[np.ndarray, float]:
+    _, rvec, tvec, inliers = cv2.solvePnPRansac(
         objectPoints=lidar_markers,
         imagePoints=image_markers,
         cameraMatrix=intrinsic,
-        distCoeffs=distortion
+        distCoeffs=distortion,
+        iterationsCount=1000,
+        reprojectionError=reprojection_error,
+        confidence=0.9999,
     )
+    coefficient = len(inliers) / lidar_markers.shape[0]
     R, _ = cv2.Rodrigues(rvec)
-    RT = np.hstack((R, tvec))
-    return RT
+    RT = np.eye(4)
+    RT[:3, :4] = np.hstack((R, tvec))
+    return RT, coefficient
 
 
 def prepare_params_json(
@@ -56,15 +62,18 @@ def prepare_params_json(
         angles: tuple = (0, 0, 0),
         resolution: tuple = (1920, 1080),
 ):
+    RT_matrix = np.linalg.inv(RT_matrix)
+    quaternion = Rotation.from_matrix(RT_matrix[:3, :3]).as_quat()
+    translation = RT_matrix[:3, 3]
     params = {
         "lidar_extrinsic": {
-            "rotation_x": -0.499039,
-            "rotation_y": 0.518256,
-            "rotation_z": -0.491861,
-            "rotation_w": 0.490350,
-            "x": 0.07509793586623727,
-            "y": 1.1985334811054549,
-            "z": 0.019436941577036237,
+            "rotation_x": quaternion[0],
+            "rotation_y": quaternion[1],
+            "rotation_z": quaternion[2],
+            "rotation_w": quaternion[3],
+            "x": translation[0],
+            "y": translation[1],
+            "z": translation[2],
             "f_x": camera_params['new_intrinsic'][0][0],
             "f_y": camera_params['new_intrinsic'][1][1],
             "c_x": camera_params['new_intrinsic'][0][2],

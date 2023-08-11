@@ -32,10 +32,11 @@ def Calibration_Flow(
         period_resolution: int = 400,
         grid_steps: int = 20,
         grid_threshold: float = 0.55,
+        reprojection_error: float = 20
 ):
     with open(f'{camera_folder}/calib.json', 'r') as f:
         camera_params = json.load(f)
-    intrinsic, distortion = np.array(camera_params['new_intrinsic']), np.array(camera_params['distortion'])
+    intrinsic, distortion = np.array(camera_params['intrinsic']), np.array(camera_params['distortion'])
     print("Chessboard detection...")
     lidar_markers_set, camera_markers_set = [], []
     for indx, row in association.iloc[stop_id:].iterrows():
@@ -71,18 +72,24 @@ def Calibration_Flow(
             print("[ERROR] ", e)
             continue
 
+    np.save(f'{folder}/lidar_markers.npy', np.array(lidar_markers_set))
+    np.save(f'{folder}/camera_markers.npy', np.array(camera_markers_set))
     lidar_markers = np.vstack(lidar_markers_set)
     camera_markers = np.vstack(camera_markers_set)
 
-    RT_matrix = calculate_RT(
+    RT_matrix, fraction = calculate_RT(
         lidar_markers=lidar_markers,
         image_markers=camera_markers,
         intrinsic=intrinsic,
         distortion=distortion,
+        reprojection_error=reprojection_error
     )
+    print("RT matrix detection fraction: ", fraction)
     print("[DONE] Calibration finished")
     print("Visualization...")
-    for id, row in association.iloc[stop_id:].sample(20).iterrows():
+    split = np.array_split(association, 20)
+    for subset in split:
+        id = subset.index[0]
         visualize_result(
             folder=folder,
             camera_folder=camera_folder,

@@ -1,44 +1,13 @@
 import json
-import time
+import sys
+import os
 
 from tools.association import create_output_association_folders
 from tools.flows import Calibration_Flow, Association_Flow
-import os
-
 from tools.lidar_tools import background_detection
 
-# %%
 
-"""
-Required input folder structure
-
-folder
-|_ lidar
-|  |_ pcd
-|  |   |_ .pcd
-|  |   |_ .pcd
-|  |   |_ ....
-|  |_ lidar_timestamps.csv
-|_ normal_camera
-|  |_ images
-|  |   |_ .jpg
-|  |   |_ .jpg
-|  |   |_ ....
-|  |_ timestamps.json
-|  |_ calib.json
-|_ wide_camera
-   |_ images
-   |   |_ .jpg
-   |   |_ .jpg
-   |   |_ ....
-   |_ timestamps.json
-   |_ calib.json
-"""
-
-# %%
-
-
-def TOOL(
+def run(
         settings_file: str,
         folder_in: str,
         folder_out: str,
@@ -87,7 +56,8 @@ def TOOL(
                 n_points_interpolate=args_list['n_points_interpolate'],
                 period_resolution=args_list['period_resolution'],
                 grid_steps=args_list['grid_steps'],
-                grid_threshold=args_list['grid_threshold']
+                grid_threshold=args_list['grid_threshold'],
+                reprojection_error=args_list['reprojection_error']
             )
             print("[DONE] Normal camera calibration")
         else:
@@ -111,7 +81,8 @@ def TOOL(
                 n_points_interpolate=args_list['n_points_interpolate'],
                 period_resolution=args_list['period_resolution'],
                 grid_steps=args_list['grid_steps'],
-                grid_threshold=args_list['grid_threshold']
+                grid_threshold=args_list['grid_threshold'],
+                reprojection_error=args_list['reprojection_error']
             )
             print("[DONE] Wide camera calibration")
         else:
@@ -120,16 +91,33 @@ def TOOL(
 
 # %%
 
-folder_in = '/Users/brom/Laboratory/GlobalLogic/MEAA/LidarCameraCalibration/data/fourth'
-folder_out = f'{folder_in}/output'
-settings_file = './settings.json'
 
-start = time.time()
-TOOL(
-    settings_file=settings_file,
-    folder_in=folder_in,
-    folder_out=folder_out,
-    calibrate=True,
-    extract=False
-)
-print(time.time() - start)
+if __name__ == '__main__':
+    # if len(sys.argv) < 6:
+    #     print("[ERROR] Wrong number of input parameters")
+    #     sys.exit(1)
+    # if sys.argv[4] not in [0, 1]:
+    #     print("[ERROR] Wrong value for extract parameter")
+    #     sys.exit(1)
+    # if sys.argv[5] not in [0, 1]:
+    #     print("[ERROR] Wrong value for calibrate parameter")
+    #     sys.exit(1)
+    # settings_file = sys.argv[1]
+    # folder_in = sys.argv[2]
+    # folder_out = sys.argv[3]
+    # extract = bool(sys.argv[4])
+    # calibrate = bool(sys.argv[5])
+
+    folder_in = '/Users/brom/Laboratory/GlobalLogic/MEAA/LidarCameraCalibration/data/second'
+    folder_out = f'{folder_in}/output'
+    settings_file = './settings.json'
+    extract = False
+    calibrate = True
+    run(
+        settings_file=settings_file,
+        folder_in=folder_in,
+        folder_out=folder_out,
+        calibrate=calibrate,
+        extract=extract
+    )
+    sys.exit(0)

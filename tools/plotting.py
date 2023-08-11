@@ -10,10 +10,14 @@ def plot_training_curve(
         folder_out: str
 ):
     plt.figure()
-    plt.plot(medians)
-    plt.plot(means)
-    plt.savefig(f'{folder_out}/TRAINING_CURVE.png')
-    plt.show()
+    plt.plot(medians, label='median distance')
+    plt.plot(means, label='mean distance')
+    plt.legend()
+    plt.xlabel('Frame')
+    plt.ylabel('Distance (m)')
+    plt.title('Background learning curve:\ndistance between similar background points on consequent frames')
+    plt.savefig(f'{folder_out}/learning_curve.png')
+    plt.close()
 
 
 def plot_result(
@@ -65,7 +69,9 @@ def visualize_result(
 
     LI = np.ones([points.shape[0], 4])
     LI[:, :3] = points
-    image_lidar = (intrinsic @ RT_matrix @ LI.T)
+    intr = np.eye(4)
+    intr[:3, :3] = intrinsic
+    image_lidar = (intr @ RT_matrix @ LI.T)
     image_lidar[:2] /= image_lidar[2, :]
     image_lidar = image_lidar.T
 

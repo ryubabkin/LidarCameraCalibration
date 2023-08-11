@@ -42,7 +42,6 @@ def background_detection(
             points_list = np.concatenate([points_list, points], axis=0)
         background_pcd.points = o3d.utility.Vector3dVector(points_list)
         background_pcd = background_pcd.remove_duplicated_points()
-        background_points = np.asarray(background_pcd.points)
         if median < median_distance_stop:
             print(f'Background frames: {indx}, median = {np.round(median, 5)}')
             break
@@ -51,7 +50,7 @@ def background_detection(
         means=np.asarray(means),
         folder_out=folder
     )
-    np.save(f'{folder}/background_points.npy', background_points)
+    o3d.io.write_point_cloud(f'{folder}/background_points.pcd', background_pcd)
     return background_pcd, indx + 1
 
 
