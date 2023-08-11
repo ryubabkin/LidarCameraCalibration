@@ -37,7 +37,7 @@ def calculate_RT(
         intrinsic: np.ndarray,
         distortion: np.ndarray,
         reprojection_error: float = 20,
-) -> tuple[np.ndarray, float]:
+) -> tuple[np.ndarray, float, float, float]:
     _, rvec, tvec, inliers = cv2.solvePnPRansac(
         objectPoints=lidar_markers,
         imagePoints=image_markers,
@@ -51,7 +51,18 @@ def calculate_RT(
     R, _ = cv2.Rodrigues(rvec)
     RT = np.eye(4)
     RT[:3, :4] = np.hstack((R, tvec))
-    return RT, coefficient
+
+    # check the RMSE
+    LI = np.ones([lidar_markers.shape[0], 4])
+    LI[:, :3] = lidar_markers
+    intr = np.eye(4)
+    intr[:3, :3] = intrinsic
+    image_lidar_markers = (intr @ RT @ LI.T)
+    image_lidar_markers[:2] /= image_lidar_markers[2, :]
+    image_lidar_markers = image_lidar_markers.T
+    rmse = np.sqrt(np.mean((image_markers[inliers, :2] - image_lidar_markers[inliers, :2]) ** 2))
+    mae = np.mean(np.abs(image_markers[inliers, :2] - image_lidar_markers[inliers, :2]))
+    return RT, coefficient, rmse, mae
 
 
 def prepare_params_json(

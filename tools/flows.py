@@ -72,12 +72,12 @@ def Calibration_Flow(
             print("[ERROR] ", e)
             continue
 
-    np.save(f'{folder}/lidar_markers.npy', np.array(lidar_markers_set))
-    np.save(f'{folder}/camera_markers.npy', np.array(camera_markers_set))
+    # np.save(f'{folder}/lidar_markers.npy', np.array(lidar_markers_set))
+    # np.save(f'{folder}/camera_markers.npy', np.array(camera_markers_set))
     lidar_markers = np.vstack(lidar_markers_set)
     camera_markers = np.vstack(camera_markers_set)
 
-    RT_matrix, fraction = calculate_RT(
+    RT_matrix, fraction, rmse, mae = calculate_RT(
         lidar_markers=lidar_markers,
         image_markers=camera_markers,
         intrinsic=intrinsic,
@@ -85,6 +85,7 @@ def Calibration_Flow(
         reprojection_error=reprojection_error
     )
     print("RT matrix detection fraction: ", fraction)
+    print("RT matrix errors (in pixels): RMSE = ", rmse, ", MAE = ", mae)
     print("[DONE] Calibration finished")
     print("Visualization...")
     split = np.array_split(association, 20)
