@@ -1,4 +1,8 @@
 {
+    "folders": {
+        "folder_in" : "/Users/brom/Laboratory/GlobalLogic/MEAA/DATA/updated_rover_setup_v3_GL/wide_camera_lidar",
+        "folder_out" : "/Users/brom/Laboratory/GlobalLogic/MEAA/DATA/updated_rover_setup_v3_GL/wide_camera_lidar/output"
+    },
     "chessboard_cells" : [9, 7],
     "cluster_threshold" : 0.1,
     "grid_threshold" : 0.5,
@@ -17,10 +21,14 @@
     "reprojection_error" : 20.0,
     "wide_camera_parameters" : {
         "elevation" : 0.0,
-        "angles" : [0.0, 0.0, 0.0]
+        "angles" : [0.0, 0.0, 0.0],
+        "hfov" : 95.0,
+        "vfov" : 70.0
     },
     "normal_camera_parameters" : {
         "elevation" : 3.2512,
-        "angles" : [10.1, 0.7, 0]
+        "angles" : [10.1, 0.7, 0],
+        "hfov" : 69.0,
+        "vfov" : 55.0
     }
 }

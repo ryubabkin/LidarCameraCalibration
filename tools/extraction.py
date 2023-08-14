@@ -134,10 +134,3 @@ def extract_rosbag_frames(
     timestamps.to_csv(timestamps_file, index=False)
     return
 
-
-def extract(
-    folder_in: str,
-) -> None:
-
-    return
-

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import time
+import traceback
+
 import numpy as np
 import open3d as o3d
 import json
@@ -9,6 +12,31 @@ from skimage.transform import ProjectiveTransform
 import matplotlib.path as mplPath
 import shapely as shp
 import os
+
+
+class LogsException(object):
+    def __init__(self):
+        self.pid = os.getpid()
+
+    @staticmethod
+    def time():
+        return time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
+
+    def error(self, text: str):
+        print(f"[{self.time()}] [{self.pid}] [ERROR] {text}")
+        traceback.print_exc()
+
+    def done(self, text: str):
+        print(f"[{self.time()}] [{self.pid}] [DONE] {text}")
+
+    def start(self, text: str):
+        print(f"[{self.time()}] [{self.pid}] [START] {text}")
+
+    def info(self, text: str):
+        print(f"[{self.time()}] [{self.pid}] [INFO] {text}")
+
+    def warn(self, text: str):
+        print(f"[{self.time()}] [{self.pid}] [WARNING] {text}")
 
 
 class NpEncoder(json.JSONEncoder):
@@ -213,7 +241,6 @@ def choose_best_plane(
         ransac_n=3,
         probability=0.85
     )
-
     # best_eq = fit_plane(points[inliers.numpy()])
     best_inliers = inliers.numpy()
     mask[best_inliers] = True
@@ -233,14 +260,12 @@ def fit_plane(
     (a, b, c), resid, rank, s = np.linalg.lstsq(XY1, Z, rcond=None)
     normal = np.array([a, b, -1])
     normal = normal / np.linalg.norm(normal)
-
     distance = -normal.dot(points.mean(axis=0))
     plane = np.hstack([normal, distance])
     return plane
 
 
 def vec2vec(vec1, vec2):
-
     a, b = (vec1 / np.linalg.norm(vec1)).reshape(3), (vec2 / np.linalg.norm(vec2)).reshape(3)
     v = np.cross(a, b)
     c = np.dot(a, b)
@@ -248,4 +273,3 @@ def vec2vec(vec1, vec2):
     kmat = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
     rotation_matrix = np.eye(3) + kmat + kmat.dot(kmat) * ((1 - c) / (s ** 2))
     return rotation_matrix
-

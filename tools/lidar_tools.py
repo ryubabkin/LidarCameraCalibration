@@ -9,8 +9,9 @@ from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.neighbors import KNeighborsClassifier
 
 from tools.plotting import plot_training_curve
-from tools.utils import choose_best_plane, vec2vec, sort_4gram, Rz
+from tools.utils import choose_best_plane, vec2vec, sort_4gram, Rz, LogsException
 
+LogExc = LogsException()
 
 def background_detection(
         association: pd.DataFrame,
@@ -22,7 +23,7 @@ def background_detection(
     points_list, background_points, indx = None, None, 0
     medians, means = [], []
     for indx, row in association.iterrows():
-        print(f"    Frame {indx} processing...")
+        LogExc.info(f"Frame {indx} processing...")
         pcd_cloud = o3d.t.io.read_point_cloud(f'{folder}/lidar/{str(indx).zfill(6)}.pcd')
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(pcd_cloud.point.positions.numpy())
@@ -43,7 +44,7 @@ def background_detection(
         background_pcd.points = o3d.utility.Vector3dVector(points_list)
         background_pcd = background_pcd.remove_duplicated_points()
         if median < median_distance_stop:
-            print(f'Background frames: {indx}, median = {np.round(median, 5)}')
+            LogExc.info(f'Background frames: {indx}, median = {np.round(median, 5)}')
             break
     plot_training_curve(
         medians=np.asarray(medians),
@@ -115,11 +116,9 @@ def detect_chessboards(
         if (confidence > plane_confidence_threshold) & (cloud.shape[0] >= min_points_in_chessboard):
             if median_intensity_threshold is None:
                 median_intensity_threshold = np.median(cloud_intensity)
-            print(
-                f'        Confidence: {np.round(confidence, 4)}, '
-                f'Shape: {cloud.shape}, '
-                f'Intensity threshold: {np.round(median_intensity_threshold, 4)}'
-            )
+            LogExc.info(f'Confidence: {np.round(confidence, 4)}')
+            LogExc.info(f'Shape: {cloud.shape}')
+            LogExc.info(f'Intensity threshold: {np.round(median_intensity_threshold, 4)}')
             intensity_mask = get_chessboard_intensity_mask(cloud_intensity)
             cloud = np.hstack([cloud, intensity_mask.reshape(-1, 1)])
             chessboards.append({
@@ -145,7 +144,7 @@ def chessboard_detection(
         period_resolution: int = 400,
         grid_steps: int = 20,
         grid_threshold: float = 0.6,
-) -> np.ndarray:
+) -> tuple[np.ndarray, int]:
     cb_cells = (cb_cells[0]+1, cb_cells[1]+1)
     difference, intensity = get_difference(
         pcd_cloud=pcd_cloud,
@@ -168,20 +167,21 @@ def chessboard_detection(
     )
     if len(chessboards) != 0:
         chessboard = max(chessboards, key=lambda x: x['cloud'].shape[0])
-        cloud, equation = chessboard['cloud'], chessboard['equation']
+        original_cloud, equation = chessboard['cloud'], chessboard['equation']
+        corrected_cloud = original_cloud.copy()
         corrected, RT = lidar_chessboard_RT(
-            cloud=cloud[:, :3],
+            cloud=original_cloud[:, :3],
             plane_equation=equation
         )
-        cloud[:, :3] = corrected
-        cloud, intensity_mask = interpolate_lidar_chessboard(
-            cloud=cloud[:, :3],
-            intensity_mask=cloud[:, 3] > 0,
+        corrected_cloud[:, :3] = corrected
+        interpolated_cloud, intensity_mask = interpolate_lidar_chessboard(
+            cloud=corrected_cloud[:, :3],
+            intensity_mask=corrected_cloud[:, 3] > 0,
             n_points=n_points_interpolate
         )
 
         rotated, horizontal, vertical, RT = get_cell_period(
-            points=cloud,
+            points=interpolated_cloud,
             intensity_mask=intensity_mask,
             RT=RT,
             resolution=period_resolution
@@ -194,15 +194,36 @@ def chessboard_detection(
             intensity_mask=intensity_mask,
             steps=grid_steps
         )
-        print(f"        Correlation: {coeff}, Difference: {diff}")
+        LogExc.info(f"Correlation: {coeff}, Difference: {diff}")
         if coeff > grid_threshold:
             grid = crop_grid(grid=grid)
             X, Y = np.meshgrid(grid[0], grid[1])
             lidar_markers = np.vstack([X.ravel(), Y.ravel()]).T
             lidar_markers = np.hstack([lidar_markers, np.ones([len(lidar_markers), 1]) * rotated[:, 2].mean()])
+
             lidar_markers = (np.linalg.inv(RT) @ lidar_markers.T).T
-            return lidar_markers
-    return np.array([])
+            n_points = get_n_real_points_on_cb(
+                lidar_markers=lidar_markers,
+                original_cloud=original_cloud
+            )
+            return lidar_markers, n_points
+    return np.array([]), 0
+
+
+def get_n_real_points_on_cb(
+        lidar_markers: np.ndarray,
+        original_cloud: np.ndarray,
+) -> int:
+    vertices = sort_4gram(pts=lidar_markers[:, 1:3])
+    envelope = shp.MultiPoint(vertices).convex_hull
+
+    points = []
+    for point in original_cloud[:, 1:3]:
+        pnt = shp.Point(point)
+        if envelope.contains(pnt):
+            points.append(point)
+    return len(points)
+
 
 
 def crop_grid(grid: list[np.ndarray, np.ndarray]) -> list[np.ndarray, np.ndarray]:

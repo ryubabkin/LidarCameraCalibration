@@ -34,14 +34,22 @@ folder
 
 MANDATORY
 
+ "folders" {
+    "folder_in"   - path to input folder (C, A)
+    "folder_out"  - path to output folder (C, A)
+ }
  "chessboard_cells" : [9, 7]     - number of cells in chessboard, [horizontal, vertical] (C)
  "wide_camera_parameters" : {
      "elevation" : 0.0,          - elevation of the camera in meters (C)
      "angles" : [0.0, 0.0, 0.0]  - rotation angles in degrees [pitch, yaw, roll] (C)
+     "hfov" : 95.0               - horizontal field of view in degrees (C)       
+     "vfov" : 70.0               - vertical field of view in degrees (C)
  }
  "normal_camera_parameters" : {
      "elevation" : 3.2512,       - elevation of the camera in meters (C)
      "angles" : [10.1, 0.7, 0]   - rotation angles in degrees [pitch, yaw, roll] (C)
+     "hfov" : 69.0               - horizontal field of view in degrees (C)       
+     "vfov" : 55.0               - vertical field of view in degrees (C)
  }
  "max_distance" : 10             - max distance for points to be considered for calibration, meters (C)
  "lag_seconds_normal": 0.0,      - lag for normal camera (A, C
@@ -64,9 +72,9 @@ OPTIONAL
 ```
 2. Run ___calibration_tool.py___ from terminal
 
-`$ python calibration_tool.py "{/path/to/settings.json}" "{/path/to/input/folder}" "{/path/to/output/folder}" {do_extraction, 1/0} {do_calibration, 1/0}`
+`$ python calibration_tool.py "{/path/to/settings.json}" {do_extraction, 1/0} {do_calibration, 1/0} >> {path/to/log.txt}`
 
-Example: `$ python calibration_tool.py "./settings.json" "./input" "./output" 1 1`
+Example: `$ python calibration_tool.py "./settings.json" 1 1 >> ./log.txt`
 
 ## Output folder structure
 ```
@@ -132,5 +140,13 @@ output
     "elevation"     - camera elevation in meters,
     "angles"        - camera rotation angles in degrees [pitch, yaw, roll]
     "resolution"    - camera resolution [width, height] [1920,1080] 
+    "accuracy" : {
+        "RMSE_pixels"   - root mean square error in pixels
+        "MAE_pixels"    - mean absolute error in pixels
+        "RMSE_degrees"  - root mean square error in degrees
+        "MAE_degrees"   - mean absolute error in degrees
+        "avg_distance_to_chessboard"   - average distance to chessboard
+        "avg_points_per_cell"  - average number of points per cell
+    }
 }
 ```
