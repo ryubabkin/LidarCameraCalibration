@@ -12,9 +12,10 @@ LogExc = LogsException()
 def run(
         params: dict,
         extract: bool = True,
-        calibrate: bool = True
+        calibrate: bool = True,
+        lag_normal: float = 0.0,
+        lag_wide: float = 0.0
 ):
-    LogExc.start("====== START ======")
     LogExc.info(params)
     folder_in = params['folders']['folder_in']
     folder_out = params['folders']['folder_out']
@@ -23,8 +24,8 @@ def run(
     association = Association_Flow(
         folder_in=folder_in,
         folder_out=folder_out,
-        n_lag_seconds=params['lag_seconds_normal'],
-        w_lag_seconds=params['lag_seconds_wide'],
+        n_lag_seconds=lag_normal,
+        w_lag_seconds=lag_wide,
         extract=extract
     )
 
@@ -59,7 +60,8 @@ def run(
                 period_resolution=params['period_resolution'],
                 grid_steps=params['grid_steps'],
                 grid_threshold=params['grid_threshold'],
-                reprojection_error=params['reprojection_error']
+                reprojection_error=params['reprojection_error'],
+                n_images_to_draw=params['n_images_to_draw']
             )
             LogExc.done("Normal camera calibration")
         else:
@@ -86,7 +88,8 @@ def run(
                 period_resolution=params['period_resolution'],
                 grid_steps=params['grid_steps'],
                 grid_threshold=params['grid_threshold'],
-                reprojection_error=params['reprojection_error']
+                reprojection_error=params['reprojection_error'],
+                n_images_to_draw=params['n_images_to_draw']
             )
             LogExc.done("Wide camera calibration")
         else:
@@ -100,17 +103,20 @@ if __name__ == '__main__':
     settings_file = sys.argv[1]
     extract = bool(int(sys.argv[2]))
     calibrate = bool(int(sys.argv[3]))
-    print(extract, calibrate)
-    # settings_file = '/Users/brom/Laboratory/GlobalLogic/MEAA/LidarCameraCalibration/settings.json'
-    # extract = False
-    # calibrate = True
 
     with open(settings_file, 'r') as file:
         params = json.load(file)
         file.close()
-    run(
-        params=params,
-        extract=extract,
-        calibrate=calibrate
-    )
+    lags_normal, lags_wide = params['lags']['lag_seconds_normal'], params['lags']['lag_seconds_wide']
+    for lag_normal in lags_normal:
+        for lag_wide in lags_wide:
+            LogExc.start(f"====== START ======")
+            LogExc.info(f"Normal lag = {lag_normal}, Wide lag = {lag_wide}")
+            run(
+                params=params,
+                extract=extract,
+                calibrate=calibrate,
+                lag_normal=lag_normal,
+                lag_wide=lag_wide
+            )
     sys.exit(0)

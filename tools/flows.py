@@ -14,6 +14,8 @@ from tools.plotting import visualize_result
 from tools.utils import LogsException
 
 LogExc = LogsException()
+
+
 def Calibration_Flow(
         folder: str,
         camera_folder: str,
@@ -36,7 +38,8 @@ def Calibration_Flow(
         period_resolution: int = 400,
         grid_steps: int = 20,
         grid_threshold: float = 0.55,
-        reprojection_error: float = 20
+        reprojection_error: float = 20,
+        n_images_to_draw: int = 20
 ):
     with open(f'{camera_folder}/calib.json', 'r') as f:
         camera_params = json.load(f)
@@ -107,7 +110,7 @@ def Calibration_Flow(
         f"MAE = {np.round(error[3],5)}"
     )
     LogExc.info("Visualization...")
-    split = np.array_split(association, 20)
+    split = np.array_split(association, n_images_to_draw)
     for subset in split:
         id = subset.index[0]
         visualize_result(
@@ -126,7 +129,7 @@ def Calibration_Flow(
         angles=angles,
         error=error,
         points=avg_points_per_cb,
-        distance=avg_distance
+        distance=float(avg_distance)
     )
 
 

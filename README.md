@@ -17,10 +17,12 @@ LidarCameraCalibration
 folder
 |_ lidar
 |  |_ rosbag2_YYYY_MM_DD-HH_MM_SS
+|
 |_ normal_camera
 |  |_ color.mjpeg
 |  |_ timestamps.json
 |  |_ calib.json
+|
 |_ wide_camera
    |_ color.mjpeg
    |_ timestamps.json
@@ -52,8 +54,10 @@ MANDATORY
      "vfov" : 55.0               - vertical field of view in degrees (C)
  }
  "max_distance" : 10             - max distance for points to be considered for calibration, meters (C)
- "lag_seconds_normal": 0.0,      - lag for normal camera (A, C
- "lag_seconds_wide": 0.0,        - lag for wide camera (A, C)
+ "lags" {
+     "lag_seconds_normal" : []   - array, lag for normal camera, in seconds. Can be negative (A, C)
+     "lag_seconds_wide" : []     - array, lag for wide camera, in seconds. Can be negative  (A, C)
+ }
  
 OPTIONAL
  
@@ -69,6 +73,7 @@ OPTIONAL
  "plane_confidence_threshold" : 0.75,  - threshold for plane confidence (C)
  "plane_inlier_threshold" : 0.02       - threshold for plane inlier points (C)
  "reprojection_error" : 20             - max error distance for RANSAC in RT matrix calibration (C)
+ "n_images_to_draw" : 10               - number of output images (C)
 ```
 2. Run ___calibration_tool.py___ from terminal
 
