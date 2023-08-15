@@ -15,6 +15,9 @@ LidarCameraCalibration
 ## Required input folder structure
 ```
 folder
+|_ gnss
+|  |_ ddmmYYYY ... .csv
+|
 |_ lidar
 |  |_ rosbag2_YYYY_MM_DD-HH_MM_SS
 |

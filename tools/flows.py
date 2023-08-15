@@ -10,6 +10,7 @@ import tools.lidar_tools as LT
 from tools.association import save_triples, associate_frames, collect_time_stamps
 from tools.camera_tools import find_chessboard_corners_camera, calculate_RT, prepare_params_json
 from tools.extraction import extract_video_frames, create_output_extraction_folders, extract_rosbag_frames
+from tools.gnss import merge_gnss
 from tools.plotting import visualize_result
 from tools.utils import LogsException
 
@@ -191,6 +192,16 @@ def Association_Flow(
         n_lag=n_lag_seconds,
         w_lag=w_lag_seconds
     )
+    if os.path.exists(f'{folder_in}/gnss/'):
+        csv_files = [filename for filename in os.listdir(f'{folder_in}/gnss/') if filename.endswith('.csv')]
+        if len(csv_files) == 0:
+            LogExc.warn("GNSS file does not exist")
+        else:
+            gnss_file = os.path.join(f'{folder_in}/gnss/', csv_files[0])
+            associated_frames = merge_gnss(
+                association=associated_frames,
+                gnss_file=gnss_file
+            )
     LogExc.info('Saving...')
     save_triples(
         association=associated_frames,
