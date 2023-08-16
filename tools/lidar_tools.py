@@ -13,6 +13,7 @@ from tools.utils import choose_best_plane, vec2vec, sort_4gram, Rz, LogsExceptio
 
 LogExc = LogsException()
 
+
 def background_detection(
         association: pd.DataFrame,
         folder: str,

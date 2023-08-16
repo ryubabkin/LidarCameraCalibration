@@ -16,7 +16,7 @@
     "min_delta" : 0.1,
     "min_points_in_cluster" : 40,
     "min_points_in_chessboard" : 300,
-    "nn_images_to_draw" : 10,
+    "n_images_to_draw" : 10,
     "n_points_interpolate" : 25000,
     "period_resolution" : 400,
     "plane_confidence_threshold" : 0.75,
